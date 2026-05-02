@@ -862,6 +862,17 @@ ipcRenderer.on('bot-event', (_, { event, data }) => {
     addActivity('💬', `Trigger <strong>${data.trigger}</strong> fired for <strong>${data.username}</strong>${data.test ? ' <em>(test)</em>' : ''}`);
     if (data.hasSound) showSoundBar();
   }
+  if (event === 'sub') {
+    const label = data.gifter ? `<strong>${data.username}</strong> was gifted a sub by <strong>${data.gifter}</strong>` :
+                  data.months ? `<strong>${data.username}</strong> resubscribed (${data.months} months)` :
+                                `<strong>${data.username}</strong> subscribed!`;
+    addActivity('⭐', label);
+    showSoundBar();
+  }
+  if (event === 'raid') {
+    addActivity('🚀', `<strong>${data.username}</strong> raided with <strong>${data.viewers}</strong> viewers!`);
+    showSoundBar();
+  }
   if (event === 'sound-played') {
     showSoundBar();
     if (data.file) playAudioFile(data.file);

@@ -209,6 +209,22 @@ class TwitchBot {
       this._handleChatMessage(ch, tags, message);
     });
 
+    this.chatClient.on('subscription', (channel, username, methods) => {
+      this._handleSub(username, methods?.plan);
+    });
+
+    this.chatClient.on('resub', (channel, username, months, msg, userstate, methods) => {
+      this._handleSub(username, methods?.plan, months);
+    });
+
+    this.chatClient.on('subgift', (channel, gifter, streakMonths, recipient, methods) => {
+      this._handleSub(recipient, methods?.plan, null, gifter);
+    });
+
+    this.chatClient.on('raided', (channel, username, viewers) => {
+      this._handleRaid(username, viewers);
+    });
+
     this.chatClient.on('disconnected', (reason) => {
       this.onEvent('status', { connected: false, message: `Disconnected: ${reason}` });
     });
@@ -382,6 +398,34 @@ class TwitchBot {
       if (alerts.follow.animation) this.sendOverlay({ ...alerts.follow.animation, username });
       if (alerts.follow.chatMessage && this.chatClient) {
         const msg = alerts.follow.chatMessage.replace(/\{user\}/gi, username);
+        this.chatClient.say(`#${this.config.credentials.channel}`, msg).catch(() => {});
+      }
+    }
+  }
+
+  _handleSub(username, plan, months, gifter) {
+    this.onEvent('sub', { username, plan, months, gifter });
+    const alerts = this.config.alerts || {};
+
+    if (alerts.sub?.enabled) {
+      if (alerts.sub.soundFile) this.playSound(alerts.sub.soundFile);
+      if (alerts.sub.animation) this.sendOverlay({ ...alerts.sub.animation, username });
+      if (alerts.sub.chatMessage && this.chatClient) {
+        const msg = alerts.sub.chatMessage.replace(/\{user\}/gi, username);
+        this.chatClient.say(`#${this.config.credentials.channel}`, msg).catch(() => {});
+      }
+    }
+  }
+
+  _handleRaid(username, viewers) {
+    this.onEvent('raid', { username, viewers });
+    const alerts = this.config.alerts || {};
+
+    if (alerts.raid?.enabled) {
+      if (alerts.raid.soundFile) this.playSound(alerts.raid.soundFile);
+      if (alerts.raid.animation) this.sendOverlay({ ...alerts.raid.animation, username });
+      if (alerts.raid.chatMessage && this.chatClient) {
+        const msg = alerts.raid.chatMessage.replace(/\{user\}/gi, username);
         this.chatClient.say(`#${this.config.credentials.channel}`, msg).catch(() => {});
       }
     }
