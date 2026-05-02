@@ -392,11 +392,11 @@ class TwitchBot {
 
   playSound(filePath) {
     if (!filePath || !fs.existsSync(filePath)) return;
+    // Notify UI so the sound bar animates
+    this.onEvent('sound-played', { file: filePath });
     try {
       const { execFile } = require('child_process');
       if (process.platform === 'win32') {
-        // Use Windows Media Player via PowerShell — supports MP3, WAV, OGG
-        // Escape single quotes in path for PowerShell
         const safePath = filePath.replace(/'/g, "''");
         execFile('powershell', [
           '-NoProfile',

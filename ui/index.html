@@ -168,6 +168,32 @@
   }
   .card-subtitle { font-size: 12px; color: var(--muted); margin-top: 2px; }
 
+  /* ── Sound Bar ── */
+  .sound-bar {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 16px;
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+  .sound-bar.active { opacity: 1; }
+  .sound-bar span {
+    width: 3px;
+    border-radius: 2px;
+    background: var(--accent);
+    animation: none;
+  }
+  .sound-bar.active span:nth-child(1) { animation: bar 0.6s ease-in-out infinite; animation-delay: 0s; }
+  .sound-bar.active span:nth-child(2) { animation: bar 0.6s ease-in-out infinite; animation-delay: 0.1s; }
+  .sound-bar.active span:nth-child(3) { animation: bar 0.6s ease-in-out infinite; animation-delay: 0.2s; }
+  .sound-bar.active span:nth-child(4) { animation: bar 0.6s ease-in-out infinite; animation-delay: 0.15s; }
+  .sound-bar.active span:nth-child(5) { animation: bar 0.6s ease-in-out infinite; animation-delay: 0.05s; }
+  @keyframes bar {
+    0%, 100% { height: 3px; }
+    50% { height: 14px; }
+  }
+
   /* ── Form ── */
   .field { margin-bottom: 14px; }
   .field label {
@@ -362,6 +388,9 @@
   <div class="titlebar-status">
     <div id="updateBadge" style="display:none;font-size:11px;font-family:var(--mono);padding:3px 8px;border-radius:20px;background:rgba(61,220,132,0.15);color:var(--green);cursor:pointer;border:1px solid rgba(61,220,132,0.3);" onclick="installUpdate()">
       ↑ UPDATE READY
+    </div>
+    <div class="sound-bar" id="soundBar">
+      <span></span><span></span><span></span><span></span><span></span>
     </div>
     <div class="status-dot" id="statusDot"></div>
     <span class="status-text" id="statusText">OFFLINE</span>
@@ -755,16 +784,22 @@ ipcRenderer.on('bot-event', (_, { event, data }) => {
     stats.follows++;
     document.getElementById('statFollows').textContent = stats.follows;
     addActivity('❤️', `<strong>${data.username}</strong> followed!`);
+    if (data.hasSound) showSoundBar();
   }
   if (event === 'redemption') {
     stats.redemptions++;
     document.getElementById('statRedemptions').textContent = stats.redemptions;
     addActivity('🎮', `<strong>${data.username}</strong> redeemed <strong>${data.reward}</strong>`);
+    if (data.hasSound) showSoundBar();
   }
   if (event === 'trigger-fired') {
     stats.triggers++;
     document.getElementById('statTriggers').textContent = stats.triggers;
     addActivity('💬', `Trigger <strong>${data.trigger}</strong> fired for <strong>${data.username}</strong>${data.test ? ' <em>(test)</em>' : ''}`);
+    if (data.hasSound) showSoundBar();
+  }
+  if (event === 'sound-played') {
+    showSoundBar();
   }
   if (event === 'chat') {
     addActivity('💬', `<strong>${data.username}</strong>: ${data.message.substring(0,60)}`);
@@ -1225,6 +1260,14 @@ function testAnim(style) {
 // ── Helpers ────────────────────────────────────────────────────────────────
 async function saveConfig() {
   await ipcRenderer.invoke('save-config', config);
+}
+
+let soundBarTimeout;
+function showSoundBar(durationMs = 2000) {
+  const bar = document.getElementById('soundBar');
+  bar.classList.add('active');
+  clearTimeout(soundBarTimeout);
+  soundBarTimeout = setTimeout(() => bar.classList.remove('active'), durationMs);
 }
 
 function setStatus(cls, text) {
