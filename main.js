@@ -23,6 +23,46 @@ const store = new Store();
 let mainWindow;
 let bot = null;
 
+function soundLibraryDir() {
+  const dir = path.join(app.getPath('userData'), 'sounds');
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+function safeFilePart(value) {
+  return String(value || 'sound')
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48) || 'sound';
+}
+
+function soundId() {
+  return crypto.randomBytes(8).toString('hex');
+}
+
+function soundMetadata({ id, name, filePath, source = 'local', license = '', attribution = '', sourceUrl = '', duration = null }) {
+  return {
+    id,
+    name: name || path.basename(filePath),
+    filePath,
+    source,
+    license,
+    attribution,
+    sourceUrl,
+    duration,
+    createdAt: new Date().toISOString()
+  };
+}
+
+function extensionFromContentType(contentType) {
+  if (/mpeg|mp3/i.test(contentType || '')) return '.mp3';
+  if (/ogg/i.test(contentType || '')) return '.ogg';
+  if (/wav/i.test(contentType || '')) return '.wav';
+  if (/webm/i.test(contentType || '')) return '.webm';
+  return '.mp3';
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 960,
@@ -137,8 +177,8 @@ ipcMain.handle('start-bot', async (_, config) => {
         }
       }
     );
-    await bot.start();
-    return { success: true };
+    const status = await bot.start();
+    return { success: true, ...status };
   } catch (err) {
     if (bot) {
       try { await bot.stop(); } catch {}
@@ -159,9 +199,73 @@ ipcMain.handle('stop-bot', async () => {
 ipcMain.handle('pick-sound-file', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openFile'],
-    filters: [{ name: 'Audio', extensions: ['mp3', 'wav', 'ogg'] }]
+    filters: [{ name: 'Audio', extensions: ['mp3', 'wav', 'ogg', 'webm', 'm4a'] }]
   });
   return result.canceled ? null : result.filePaths[0];
+});
+
+ipcMain.handle('import-sound-file', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openFile'],
+    filters: [{ name: 'Audio', extensions: ['mp3', 'wav', 'ogg', 'webm', 'm4a'] }]
+  });
+  if (result.canceled) return null;
+
+  const sourcePath = result.filePaths[0];
+  const id = soundId();
+  const ext = path.extname(sourcePath) || '.mp3';
+  const name = path.basename(sourcePath, ext);
+  const destPath = path.join(soundLibraryDir(), `${safeFilePart(name)}-${id}${ext}`);
+  fs.copyFileSync(sourcePath, destPath);
+  return soundMetadata({ id, name, filePath: destPath, source: 'local' });
+});
+
+ipcMain.handle('save-recorded-sound', async (_, { name, dataUrl, mimeType }) => {
+  if (!dataUrl || !/^data:audio\//.test(dataUrl)) throw new Error('Invalid audio recording.');
+  const id = soundId();
+  const base64 = dataUrl.split(',')[1];
+  const ext = extensionFromContentType(mimeType || dataUrl.slice(5, dataUrl.indexOf(';')));
+  const filePath = path.join(soundLibraryDir(), `${safeFilePart(name)}-${id}${ext}`);
+  fs.writeFileSync(filePath, Buffer.from(base64, 'base64'));
+  return soundMetadata({ id, name, filePath, source: 'recorded' });
+});
+
+ipcMain.handle('search-freesound', async (_, { apiKey, query }) => {
+  if (!apiKey) throw new Error('Add a Freesound API key first.');
+  if (!query || !query.trim()) return [];
+
+  const params = new URLSearchParams({
+    query: query.trim(),
+    token: apiKey,
+    page_size: '12',
+    fields: 'id,name,duration,license,username,url,previews,tags'
+  });
+
+  const res = await fetch(`https://freesound.org/apiv2/search/?${params.toString()}`);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.detail || data.message || 'Freesound search failed.');
+  return (data.results || []).map((sound) => ({
+    id: sound.id,
+    name: sound.name,
+    duration: sound.duration,
+    license: sound.license,
+    username: sound.username,
+    url: sound.url,
+    previewUrl: sound.previews?.['preview-hq-mp3'] || sound.previews?.['preview-lq-mp3'] || sound.previews?.['preview-hq-ogg'] || sound.previews?.['preview-lq-ogg'],
+    tags: sound.tags || []
+  })).filter((sound) => sound.previewUrl);
+});
+
+ipcMain.handle('import-remote-sound', async (_, { name, downloadUrl, sourceUrl, license, attribution, duration }) => {
+  if (!downloadUrl || !/^https:\/\//.test(downloadUrl)) throw new Error('Invalid sound URL.');
+  const res = await fetch(downloadUrl);
+  if (!res.ok) throw new Error(`Could not download sound (${res.status}).`);
+  const buffer = await res.buffer();
+  const id = soundId();
+  const ext = path.extname(new URL(downloadUrl).pathname) || extensionFromContentType(res.headers.get('content-type'));
+  const filePath = path.join(soundLibraryDir(), `${safeFilePart(name)}-${id}${ext}`);
+  fs.writeFileSync(filePath, buffer);
+  return soundMetadata({ id, name, filePath, source: 'freesound', license, attribution, sourceUrl, duration });
 });
 
 ipcMain.handle('pick-image-file', async () => {

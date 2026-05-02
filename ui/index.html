@@ -412,6 +412,9 @@
     <div class="nav-item" data-page="triggers">
       <span class="nav-icon">💬</span> Chat Triggers
     </div>
+    <div class="nav-item" data-page="sounds">
+      <span class="nav-icon">🔊</span> Sounds
+    </div>
     <div class="nav-item" data-page="alerts">
       <span class="nav-icon">🔔</span> Alerts
     </div>
@@ -675,6 +678,63 @@
       </div>
     </div>
 
+    <!-- Sounds -->
+    <div class="page" id="page-sounds">
+      <div class="page-title">Sound Library</div>
+
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">My Sounds</div>
+            <div class="card-subtitle">Imported, recorded, and searched sounds ready for alerts</div>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="importSoundToLibrary()">+ Import File</button>
+        </div>
+        <div id="soundLibraryList"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">Record Sound Bite</div>
+            <div class="card-subtitle">Capture a quick microphone clip and save it locally</div>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-primary btn-sm" id="recordBtn" onclick="toggleRecording()">● Record</button>
+            <button class="btn btn-ghost btn-sm" id="saveRecordingBtn" onclick="saveRecording()" style="display:none;">Save</button>
+          </div>
+        </div>
+        <div class="field">
+          <label>Sound Name</label>
+          <input type="text" id="recordingName" placeholder="My sound bite">
+        </div>
+        <audio id="recordingPreview" controls style="display:none;width:100%;margin-top:6px;"></audio>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">Search Freesound</div>
+            <div class="card-subtitle">Preview licensed sounds and import them into your library</div>
+          </div>
+        </div>
+        <div class="field-row" style="grid-template-columns:1fr 2fr auto;">
+          <div class="field">
+            <label>API Key</label>
+            <input type="password" id="freesoundApiKey" placeholder="Freesound API token" onchange="saveFreesoundKey(this.value)">
+          </div>
+          <div class="field">
+            <label>Search</label>
+            <input type="text" id="freesoundQuery" placeholder="airhorn, applause, laser..." onkeydown="if(event.key==='Enter') searchFreesound()">
+          </div>
+          <div class="field" style="display:flex;align-items:flex-end;">
+            <button class="btn btn-primary" onclick="searchFreesound()">Search</button>
+          </div>
+        </div>
+        <div id="freesoundResults"></div>
+      </div>
+    </div>
+
     <!-- Alerts -->
     <div class="page" id="page-alerts">
       <div class="page-title">Follow / Sub / Raid Alerts</div>
@@ -795,6 +855,8 @@ const defaultConfig = {
   credentials: {},
   redemptions: [],
   chatTriggers: [],
+  soundLibrary: [],
+  freesoundApiKey: '',
   alerts: {
     follow: { enabled: true, chatMessage: 'Welcome {user}! Thanks for the follow! 👋', soundFile: null, animation: null },
     sub:    { enabled: true, chatMessage: 'Thank you {user} for subscribing! 🎉', soundFile: null, animation: null },
@@ -819,6 +881,8 @@ function normalizeConfig(saved = {}) {
     },
     redemptions: Array.isArray(source.redemptions) ? source.redemptions : defaults.redemptions,
     chatTriggers: Array.isArray(source.chatTriggers) ? source.chatTriggers : defaults.chatTriggers,
+    soundLibrary: Array.isArray(source.soundLibrary) ? source.soundLibrary : defaults.soundLibrary,
+    freesoundApiKey: source.freesoundApiKey || defaults.freesoundApiKey,
     alerts: {}
   };
 
@@ -897,6 +961,8 @@ function sanitizeActivityHtml(html) {
   renderRedemptions();
   renderTriggers();
   renderAlerts();
+  renderSoundLibrary();
+  document.getElementById('freesoundApiKey').value = config.freesoundApiKey || '';
   refreshAudioDevices();
   // Restore activity history from last session
   const history = await ipcRenderer.invoke('get-history');
@@ -930,6 +996,7 @@ document.querySelectorAll('.nav-item').forEach(item => {
     item.classList.add('active');
     document.getElementById('page-' + item.dataset.page).classList.add('active');
     if (item.dataset.page === 'settings') refreshAudioDevices();
+    if (item.dataset.page === 'sounds') renderSoundLibrary();
     if (item.dataset.page === 'overlay') {
       const el = document.getElementById('testAnimPosition');
       if (el && !el.children.length) el.innerHTML = animPositionOptions();
@@ -966,7 +1033,7 @@ async function toggleBot() {
       setStatus('live', 'LIVE');
       document.getElementById('connectBtn').textContent = 'DISCONNECT';
       document.getElementById('connectBtn').classList.add('connected');
-      toast('Bot connected!', 'success');
+      toast(result.chatConnected ? 'Bot connected!' : 'StreamCtl is live. Reconnect the bot account to enable chat.', 'success');
     } else {
       toast('Connection failed: ' + result.error, 'error');
     }
@@ -1032,6 +1099,10 @@ ipcRenderer.on('bot-event', (_, { event, data }) => {
   if (event === 'token-error') {
     addActivity('⚠️', `<strong>${escapeHtml(data.message)}</strong>`);
     toast(data.message, 'error');
+  }
+  if (event === 'chat-unavailable' || event === 'chat-warning') {
+    addActivity('⚠️', `<strong>${escapeHtml(data.message)}</strong>`);
+    toast(data.message, event === 'chat-warning' ? 'error' : '');
   }
 });
 
@@ -1192,6 +1263,227 @@ async function disconnectBotOAuth() {
   toast('Bot account disconnected.');
 }
 
+// ── Sound Library ──────────────────────────────────────────────────────────
+let mediaRecorder = null;
+let recordingChunks = [];
+let currentRecording = null;
+let currentRecordingMime = '';
+let freesoundResults = [];
+
+function fileName(filePath) {
+  return String(filePath || '').split(/[\\/]/).pop();
+}
+
+function soundLabel(sound) {
+  const parts = [sound.name || fileName(sound.filePath)];
+  if (sound.source && sound.source !== 'local') parts.push(sound.source);
+  if (sound.license) parts.push(sound.license.split('/').filter(Boolean).pop() || sound.license);
+  return parts.join(' · ');
+}
+
+function renderSoundLibrary() {
+  const list = document.getElementById('soundLibraryList');
+  if (!list) return;
+  const sounds = config.soundLibrary || [];
+  if (!sounds.length) {
+    list.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px 0;">No sounds yet. Import, record, or search Freesound to add one.</div>';
+    return;
+  }
+  list.innerHTML = sounds.map((s, i) => `
+    <div class="list-item">
+      <div class="list-item-info">
+        <div class="list-item-name">${escapeHtml(s.name || fileName(s.filePath))}</div>
+        <div class="list-item-sub">
+          ${escapeHtml(fileName(s.filePath))}
+          ${s.license ? ' · ' + escapeHtml(s.license) : ''}
+          ${s.attribution ? ' · by ' + escapeHtml(s.attribution) : ''}
+        </div>
+      </div>
+      <span class="pill pill-purple">${escapeHtml(s.source || 'local')}</span>
+      <button class="btn btn-ghost btn-sm" onclick="testLibrarySound(${i})">▶</button>
+      <button class="btn btn-danger btn-sm" onclick="removeLibrarySound(${i})">✕</button>
+    </div>
+  `).join('');
+}
+
+async function importSoundToLibrary() {
+  const sound = await ipcRenderer.invoke('import-sound-file');
+  if (!sound) return;
+  config.soundLibrary.push(sound);
+  await saveConfig();
+  renderSoundLibrary();
+  toast(`Imported ${sound.name}`, 'success');
+}
+
+function testLibrarySound(i) {
+  const sound = config.soundLibrary[i];
+  if (sound?.filePath) ipcRenderer.invoke('test-sound', sound.filePath);
+}
+
+async function removeLibrarySound(i) {
+  config.soundLibrary.splice(i, 1);
+  await saveConfig();
+  renderSoundLibrary();
+}
+
+async function chooseSoundFromLibrary() {
+  const sounds = config.soundLibrary || [];
+  if (!sounds.length) {
+    toast('Your sound library is empty. Import or record a sound first.', 'error');
+    return null;
+  }
+  const options = sounds.map((s, i) => `${i + 1}. ${soundLabel(s)}`).join('\n');
+  const raw = window.prompt(`Choose a sound number:\n\n${options}`);
+  if (!raw) return null;
+  const idx = Number(raw) - 1;
+  if (!Number.isInteger(idx) || idx < 0 || idx >= sounds.length) {
+    toast('Invalid sound selection.', 'error');
+    return null;
+  }
+  return sounds[idx];
+}
+
+async function chooseSoundFile() {
+  const fromLibrary = window.confirm('Choose from Sound Library?\n\nOK = Library\nCancel = Browse files');
+  if (fromLibrary) {
+    const sound = await chooseSoundFromLibrary();
+    return sound?.filePath || null;
+  }
+  return ipcRenderer.invoke('pick-sound-file');
+}
+
+async function toggleRecording() {
+  const btn = document.getElementById('recordBtn');
+  if (mediaRecorder?.state === 'recording') {
+    mediaRecorder.stop();
+    return;
+  }
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    recordingChunks = [];
+    currentRecording = null;
+    currentRecordingMime = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : '';
+    mediaRecorder = new MediaRecorder(stream, currentRecordingMime ? { mimeType: currentRecordingMime } : undefined);
+    mediaRecorder.ondataavailable = (event) => {
+      if (event.data.size > 0) recordingChunks.push(event.data);
+    };
+    mediaRecorder.onstop = () => {
+      stream.getTracks().forEach((track) => track.stop());
+      currentRecording = new Blob(recordingChunks, { type: currentRecordingMime || 'audio/webm' });
+      const preview = document.getElementById('recordingPreview');
+      preview.src = URL.createObjectURL(currentRecording);
+      preview.style.display = 'block';
+      document.getElementById('saveRecordingBtn').style.display = '';
+      btn.textContent = '● Record';
+      toast('Recording ready to save.', 'success');
+    };
+    mediaRecorder.start();
+    btn.textContent = '■ Stop';
+    document.getElementById('saveRecordingBtn').style.display = 'none';
+    toast('Recording...');
+  } catch (err) {
+    toast('Could not start microphone: ' + err.message, 'error');
+  }
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function saveRecording() {
+  if (!currentRecording) return toast('Record something first.', 'error');
+  const name = document.getElementById('recordingName').value.trim() || 'Recorded sound';
+  const dataUrl = await blobToDataUrl(currentRecording);
+  const sound = await ipcRenderer.invoke('save-recorded-sound', { name, dataUrl, mimeType: currentRecording.type });
+  config.soundLibrary.push(sound);
+  currentRecording = null;
+  document.getElementById('recordingPreview').style.display = 'none';
+  document.getElementById('saveRecordingBtn').style.display = 'none';
+  document.getElementById('recordingName').value = '';
+  await saveConfig();
+  renderSoundLibrary();
+  toast(`Saved ${sound.name}`, 'success');
+}
+
+async function saveFreesoundKey(value) {
+  config.freesoundApiKey = value.trim();
+  await saveConfig();
+  toast('Freesound key saved.', 'success');
+}
+
+async function searchFreesound() {
+  const apiKey = document.getElementById('freesoundApiKey').value.trim();
+  const query = document.getElementById('freesoundQuery').value.trim();
+  config.freesoundApiKey = apiKey;
+  await saveConfig();
+  const container = document.getElementById('freesoundResults');
+  container.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px 0;">Searching...</div>';
+  try {
+    freesoundResults = await ipcRenderer.invoke('search-freesound', { apiKey, query });
+    renderFreesoundResults();
+  } catch (err) {
+    container.innerHTML = '';
+    toast(err.message, 'error');
+  }
+}
+
+function renderFreesoundResults() {
+  const container = document.getElementById('freesoundResults');
+  if (!freesoundResults.length) {
+    container.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px 0;">No matching sounds found.</div>';
+    return;
+  }
+  container.innerHTML = freesoundResults.map((s, i) => `
+    <div class="list-item">
+      <div class="list-item-info">
+        <div class="list-item-name">${escapeHtml(s.name)}</div>
+        <div class="list-item-sub">
+          ${escapeHtml(typeof s.duration === 'number' ? s.duration.toFixed(1) : s.duration || '?')}s
+          · ${escapeHtml(s.license || 'Unknown license')}
+          · by ${escapeHtml(s.username || 'unknown')}
+        </div>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="previewRemoteSound(${i})">▶</button>
+      <button class="btn btn-primary btn-sm" onclick="importFreesoundResult(${i})">Import</button>
+    </div>
+  `).join('');
+}
+
+function previewRemoteSound(i) {
+  const sound = freesoundResults[i];
+  if (!sound?.previewUrl) return;
+  const audio = new Audio(sound.previewUrl);
+  audio.volume = audioVolume;
+  audio.play().catch(() => toast('Could not preview sound.', 'error'));
+}
+
+async function importFreesoundResult(i) {
+  const result = freesoundResults[i];
+  if (!result?.previewUrl) return;
+  try {
+    const sound = await ipcRenderer.invoke('import-remote-sound', {
+      name: result.name,
+      downloadUrl: result.previewUrl,
+      sourceUrl: result.url,
+      license: result.license,
+      attribution: result.username,
+      duration: result.duration
+    });
+    config.soundLibrary.push(sound);
+    await saveConfig();
+    renderSoundLibrary();
+    toast(`Imported ${sound.name}`, 'success');
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
 // ── Redemptions ────────────────────────────────────────────────────────────
 function renderRedemptions() {
   const list = document.getElementById('redemptionList');
@@ -1220,7 +1512,7 @@ function showAddRedemption() {
 function hideAddRedemption() { document.getElementById('addRedemptionForm').style.display = 'none'; }
 
 async function pickRedemptionSound() {
-  const f = await ipcRenderer.invoke('pick-sound-file');
+  const f = await chooseSoundFile();
   if (f) { tempSoundFile.redemption = f; document.getElementById('newRewardSoundName').textContent = f.split(/[\\/]/).pop(); }
 }
 
@@ -1479,7 +1771,7 @@ async function updateTriggerAnim(i, field, value) {
 }
 
 async function pickTriggerSoundFor(i) {
-  const f = await ipcRenderer.invoke('pick-sound-file');
+  const f = await chooseSoundFile();
   if (f) {
     config.chatTriggers[i].soundFile = f;
     await saveConfig();
@@ -1576,7 +1868,7 @@ function renderAlerts() {
 async function toggleAlert(key, val) { config.alerts[key].enabled = val; await saveConfig(); renderAlerts(); }
 async function updateAlertChat(key, val) { config.alerts[key].chatMessage = val; await saveConfig(); }
 async function pickAlertSound(key) {
-  const f = await ipcRenderer.invoke('pick-sound-file');
+  const f = await chooseSoundFile();
   if (f) { config.alerts[key].soundFile = f; await saveConfig(); renderAlerts(); }
 }
 function testAlertSound(key) {

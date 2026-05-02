@@ -22,15 +22,19 @@ class TwitchBot {
 
   async start() {
     this.running = true;
-    await this._startChat();
-    // Start the overlay after chat credentials pass validation so failed starts
-    // do not leave a server bound to port 9000.
+    const chatConnected = await this._startChat();
     if (!this.overlayServer) await this._startOverlayServer();
     if (this.config.credentials?.accessToken) {
       this._startEventSubPolling();
       this._startTokenRefreshWatcher();
     }
-    this.onEvent('status', { connected: true, message: 'Bot connected!' });
+    this.onEvent('status', {
+      connected: true,
+      message: chatConnected
+        ? 'Bot connected!'
+        : 'StreamCtl is live. Connect the bot account in Settings to enable chat commands and chat replies.'
+    });
+    return { chatConnected };
   }
 
   async stop() {
@@ -180,8 +184,8 @@ class TwitchBot {
       (creds.botAccessToken ? `oauth:${creds.botAccessToken}` : null);
 
     if (!channel || !botUsername || !oauthToken) {
-      this.onEvent('status', { connected: false, message: 'Missing chat credentials — connect bot account in Settings.' });
-      throw new Error('Missing chat credentials — connect bot account in Settings.');
+      this.chatClient = null;
+      return false;
     }
 
     // Dedup set — stores message IDs we've already processed
@@ -191,11 +195,13 @@ class TwitchBot {
     // Per-trigger cooldown map: triggerKeyword -> last fired timestamp
     this._triggerLastFired = new Map();
 
+    let initialConnectDone = false;
+
     this.chatClient = new tmi.Client({
       options: { debug: false },
       identity: { username: botUsername, password: oauthToken },
       channels: [channel],
-      connection: { reconnect: true, secure: true, maxReconnectAttempts: Infinity }
+      connection: { reconnect: false, secure: true, maxReconnectAttempts: Infinity }
     });
 
     this.chatClient.on('message', (ch, tags, message, self) => {
@@ -239,8 +245,12 @@ class TwitchBot {
     });
 
     this.chatClient.on('disconnected', (reason) => {
+      const hadConnected = this._chatConnected;
       this._chatConnected = false;
-      this.onEvent('status', { connected: false, message: `Disconnected: ${reason}` });
+      if (!initialConnectDone && !hadConnected) return;
+      this.onEvent(hadConnected ? 'chat-warning' : 'chat-unavailable', {
+        message: `Chat disconnected: ${reason}`
+      });
     });
 
     this.chatClient.on('connected', () => {
@@ -249,7 +259,23 @@ class TwitchBot {
       this.onEvent('status', { connected: true, message: reconnect ? 'Reconnected to chat.' : 'Chat connected!' });
     });
 
-    await this.chatClient.connect();
+    try {
+      await this.chatClient.connect();
+      initialConnectDone = true;
+      this.chatClient.reconnect = true;
+      return true;
+    } catch (err) {
+      initialConnectDone = true;
+      if (this.chatClient.ws && this.chatClient.ws.readyState !== 3) {
+        try { await this.chatClient.disconnect(); } catch {}
+      }
+      this.chatClient = null;
+      this._chatConnected = false;
+      this.onEvent('chat-unavailable', {
+        message: `Chat unavailable: ${err.message || 'Could not connect to Twitch chat.'}`
+      });
+      return false;
+    }
   }
 
   // Normalize a string for reliable matching:
