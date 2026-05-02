@@ -1,12 +1,10 @@
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const http = require('http');
-const https = require('https');
 const url = require('url');
 const Store = require('electron-store');
 const fetch = require('node-fetch');
 const { autoUpdater } = require('electron-updater');
-const selfsigned = require('selfsigned');
 const TwitchBot = require('./bot');
 
 // ── Auto-updater config ───────────────────────────────────────────────────────
@@ -188,17 +186,13 @@ ipcMain.handle('test-overlay', (_, animConfig) => {
 });
 
 // ── OAuth Flow ────────────────────────────────────────────────────────────────
-// Uses a self-signed HTTPS loopback server because Twitch now requires HTTPS
-// even for localhost redirect URIs. The cert never leaves the machine.
+// Spins up a temporary local HTTP server, opens Twitch auth in the browser,
+// catches the callback on http://localhost, exchanges code for token, shuts down.
 
 ipcMain.handle('start-oauth', async (_, { clientId, clientSecret, scopes }) => {
   return new Promise((resolve) => {
-    const redirectUri = 'https://localhost:3000/callback';
+    const redirectUri = 'http://localhost';
     const state = Math.random().toString(36).substring(2);
-
-    // Generate a self-signed cert on the fly — only used for this local callback
-    const attrs = [{ name: 'commonName', value: 'localhost' }];
-    const pems = selfsigned.generate(attrs, { days: 1 });
 
     const authUrl = new URL('https://id.twitch.tv/oauth2/authorize');
     authUrl.searchParams.set('client_id', clientId);
@@ -214,72 +208,70 @@ ipcMain.handle('start-oauth', async (_, { clientId, clientSecret, scopes }) => {
       resolve({ success: false, error: 'Timed out waiting for Twitch login (2 min).' });
     }, 120000);
 
-    server = https.createServer(
-      { key: pems.private, cert: pems.cert },
-      async (req, res) => {
-        const parsed = url.parse(req.url, true);
-        if (parsed.pathname !== '/callback') return;
+    server = http.createServer(async (req, res) => {
+      const parsed = url.parse(req.url, true);
 
-        res.writeHead(200, { 'Content-Type': 'text/html' });
-        res.end(`<!DOCTYPE html><html><head><style>
-          body { font-family: system-ui; display:flex; align-items:center; justify-content:center;
-                 height:100vh; margin:0; background:#0d0d14; color:#e8e8f0; }
-          h2 { color: #7c5cfc; } p { color: #555570; }
-        </style></head><body>
-          <div style="text-align:center">
-            <h2>✓ Connected!</h2>
-            <p>You can close this tab and return to StreamCtl.</p>
-          </div>
-        </body></html>`);
+      // Twitch redirects to http://localhost/?code=xxx — catch any path
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(`<!DOCTYPE html><html><head><style>
+        body { font-family: system-ui; display:flex; align-items:center; justify-content:center;
+               height:100vh; margin:0; background:#0d0d14; color:#e8e8f0; }
+        h2 { color: #7c5cfc; } p { color: #555570; }
+      </style></head><body>
+        <div style="text-align:center">
+          <h2>✓ Connected!</h2>
+          <p>You can close this tab and return to StreamCtl.</p>
+        </div>
+      </body></html>`);
 
-        server.close();
-        clearTimeout(timeout);
+      server.close();
+      clearTimeout(timeout);
 
-        const { code, state: returnedState, error } = parsed.query;
+      const { code, state: returnedState, error } = parsed.query;
 
-        if (error) return resolve({ success: false, error: `Twitch denied: ${error}` });
-        if (returnedState !== state) return resolve({ success: false, error: 'State mismatch.' });
+      if (error) return resolve({ success: false, error: `Twitch denied: ${error}` });
+      if (returnedState !== state) return resolve({ success: false, error: 'State mismatch.' });
+      if (!code) return; // ignore requests without a code (e.g. favicon)
 
-        try {
-          const tokenRes = await fetch('https://id.twitch.tv/oauth2/token', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({
-              client_id: clientId,
-              client_secret: clientSecret,
-              code,
-              grant_type: 'authorization_code',
-              redirect_uri: redirectUri
-            })
+      try {
+        const tokenRes = await fetch('https://id.twitch.tv/oauth2/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({
+            client_id: clientId,
+            client_secret: clientSecret,
+            code,
+            grant_type: 'authorization_code',
+            redirect_uri: redirectUri
+          })
+        });
+        const tokenData = await tokenRes.json();
+        if (tokenData.access_token) {
+          const userRes = await fetch('https://api.twitch.tv/helix/users', {
+            headers: {
+              Authorization: `Bearer ${tokenData.access_token}`,
+              'Client-Id': clientId
+            }
           });
-          const tokenData = await tokenRes.json();
-          if (tokenData.access_token) {
-            const userRes = await fetch('https://api.twitch.tv/helix/users', {
-              headers: {
-                Authorization: `Bearer ${tokenData.access_token}`,
-                'Client-Id': clientId
-              }
-            });
-            const userData = await userRes.json();
-            const user = userData.data?.[0];
-            resolve({
-              success: true,
-              accessToken: tokenData.access_token,
-              refreshToken: tokenData.refresh_token,
-              broadcasterId: user?.id,
-              login: user?.login,
-              displayName: user?.display_name
-            });
-          } else {
-            resolve({ success: false, error: tokenData.message || 'Token exchange failed.' });
-          }
-        } catch (err) {
-          resolve({ success: false, error: err.message });
+          const userData = await userRes.json();
+          const user = userData.data?.[0];
+          resolve({
+            success: true,
+            accessToken: tokenData.access_token,
+            refreshToken: tokenData.refresh_token,
+            broadcasterId: user?.id,
+            login: user?.login,
+            displayName: user?.display_name
+          });
+        } else {
+          resolve({ success: false, error: tokenData.message || 'Token exchange failed.' });
         }
+      } catch (err) {
+        resolve({ success: false, error: err.message });
       }
-    );
+    });
 
-    server.listen(3000, () => {
+    server.listen(80, () => {
       shell.openExternal(authUrl.toString());
     });
   });
