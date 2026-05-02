@@ -1,6 +1,6 @@
 {
   "name": "streamctl",
-  "version": "1.3.1",
+  "version": "1.3.2",
   "description": "Custom Twitch Bot",
   "main": "main.js",
   "scripts": {
@@ -31,6 +31,7 @@
     },
     "files": [
       "main.js",
+      "preload.js",
       "bot.js",
       "ui/**/*",
       "overlay/**/*",

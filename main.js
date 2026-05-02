@@ -3,18 +3,21 @@ const path = require('path');
 const fs = require('fs');
 const http = require('http');
 const url = require('url');
+const crypto = require('crypto');
 const Store = require('electron-store');
 const fetch = require('node-fetch');
-const { autoUpdater } = require('electron-updater');
 const TwitchBot = require('./bot');
-
-// ── Auto-updater config ───────────────────────────────────────────────────────
-// Silently check for updates, download in background, prompt to restart
-autoUpdater.autoDownload = true;
-autoUpdater.autoInstallOnAppQuit = true;
 
 // Don't check for updates in dev (npm start)
 const isDev = !app.isPackaged;
+let autoUpdater = null;
+
+if (!isDev) {
+  ({ autoUpdater } = require('electron-updater'));
+  // Silently check for updates, download in background, prompt to restart
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+}
 
 const store = new Store();
 let mainWindow;
@@ -27,8 +30,10 @@ function createWindow() {
     minWidth: 800,
     minHeight: 600,
     webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false
+      preload: path.join(__dirname, 'preload.js'),
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: false
     },
     titleBarStyle: 'hiddenInset',
     backgroundColor: '#0d0d14'
@@ -50,44 +55,46 @@ app.whenReady().then(() => {
 
 // ── Auto-updater events ───────────────────────────────────────────────────────
 
-autoUpdater.on('checking-for-update', () => {
-  sendUpdaterStatus('checking');
-});
+if (autoUpdater) {
+  autoUpdater.on('checking-for-update', () => {
+    sendUpdaterStatus('checking');
+  });
 
-autoUpdater.on('update-available', (info) => {
-  sendUpdaterStatus('available', `Update v${info.version} found — downloading...`);
-});
+  autoUpdater.on('update-available', (info) => {
+    sendUpdaterStatus('available', `Update v${info.version} found — downloading...`);
+  });
 
-autoUpdater.on('update-not-available', () => {
-  sendUpdaterStatus('current');
-});
+  autoUpdater.on('update-not-available', () => {
+    sendUpdaterStatus('current');
+  });
 
-autoUpdater.on('download-progress', (progress) => {
-  sendUpdaterStatus('downloading', `Downloading update... ${Math.round(progress.percent)}%`);
-});
+  autoUpdater.on('download-progress', (progress) => {
+    sendUpdaterStatus('downloading', `Downloading update... ${Math.round(progress.percent)}%`);
+  });
 
-autoUpdater.on('update-downloaded', (info) => {
-  sendUpdaterStatus('ready', `v${info.version} ready — restart to install`);
-  // Show a non-intrusive dialog — she can choose when to restart
-  if (mainWindow) {
-    dialog.showMessageBox(mainWindow, {
-      type: 'info',
-      title: 'Update Ready',
-      message: `StreamCtl v${info.version} has been downloaded.`,
-      detail: 'Restart now to install, or it will install automatically next time you close the app.',
-      buttons: ['Restart Now', 'Later'],
-      defaultId: 0
-    }).then(({ response }) => {
-      if (response === 0) autoUpdater.quitAndInstall();
-    });
-  }
-});
+  autoUpdater.on('update-downloaded', (info) => {
+    sendUpdaterStatus('ready', `v${info.version} ready — restart to install`);
+    // Show a non-intrusive dialog — she can choose when to restart
+    if (mainWindow) {
+      dialog.showMessageBox(mainWindow, {
+        type: 'info',
+        title: 'Update Ready',
+        message: `StreamCtl v${info.version} has been downloaded.`,
+        detail: 'Restart now to install, or it will install automatically next time you close the app.',
+        buttons: ['Restart Now', 'Later'],
+        defaultId: 0
+      }).then(({ response }) => {
+        if (response === 0) autoUpdater.quitAndInstall();
+      });
+    }
+  });
 
-autoUpdater.on('error', (err) => {
-  // Don't bother the user with update errors — just log it
-  console.error('Auto-updater error:', err.message);
-  sendUpdaterStatus('error');
-});
+  autoUpdater.on('error', (err) => {
+    // Don't bother the user with update errors — just log it
+    console.error('Auto-updater error:', err.message);
+    sendUpdaterStatus('error');
+  });
+}
 
 function sendUpdaterStatus(status, message) {
   if (mainWindow) mainWindow.webContents.send('updater-status', { status, message });
@@ -133,6 +140,10 @@ ipcMain.handle('start-bot', async (_, config) => {
     await bot.start();
     return { success: true };
   } catch (err) {
+    if (bot) {
+      try { await bot.stop(); } catch {}
+      bot = null;
+    }
     return { success: false, error: err.message };
   }
 });
@@ -210,11 +221,11 @@ ipcMain.handle('save-history', (_, items) => {
 });
 
 ipcMain.handle('check-for-updates', () => {
-  if (!isDev) autoUpdater.checkForUpdatesAndNotify();
+  if (autoUpdater) autoUpdater.checkForUpdatesAndNotify();
 });
 
 ipcMain.handle('install-update', () => {
-  autoUpdater.quitAndInstall();
+  if (autoUpdater) autoUpdater.quitAndInstall();
 });
 
 ipcMain.handle('test-overlay', (_, animConfig) => {
@@ -229,7 +240,16 @@ ipcMain.handle('start-oauth', async (_, { clientId, clientSecret, scopes }) => {
   return new Promise((resolve) => {
     // Port 7878 — high enough to not need admin rights on Windows
     const redirectUri = 'http://localhost:7878';
-    const state = Math.random().toString(36).substring(2);
+    const state = crypto.randomBytes(16).toString('hex');
+    let settled = false;
+
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      if (server?.listening) server.close();
+      resolve(result);
+    };
 
     const authUrl = new URL('https://id.twitch.tv/oauth2/authorize');
     authUrl.searchParams.set('client_id', clientId);
@@ -239,14 +259,19 @@ ipcMain.handle('start-oauth', async (_, { clientId, clientSecret, scopes }) => {
     authUrl.searchParams.set('state', state);
     authUrl.searchParams.set('force_verify', 'true');
 
-    let server;
     const timeout = setTimeout(() => {
-      if (server) server.close();
-      resolve({ success: false, error: 'Timed out waiting for Twitch login (2 min).' });
+      finish({ success: false, error: 'Timed out waiting for Twitch login (2 min).' });
     }, 120000);
 
-    server = http.createServer(async (req, res) => {
+    const server = http.createServer(async (req, res) => {
       const parsed = url.parse(req.url, true);
+      const { code, state: returnedState, error } = parsed.query;
+
+      if (!code && !error) {
+        res.writeHead(204);
+        res.end();
+        return;
+      }
 
       // Twitch redirects to http://localhost/?code=xxx — catch any path
       res.writeHead(200, { 'Content-Type': 'text/html' });
@@ -261,14 +286,8 @@ ipcMain.handle('start-oauth', async (_, { clientId, clientSecret, scopes }) => {
         </div>
       </body></html>`);
 
-      server.close();
-      clearTimeout(timeout);
-
-      const { code, state: returnedState, error } = parsed.query;
-
-      if (error) return resolve({ success: false, error: `Twitch denied: ${error}` });
-      if (returnedState !== state) return resolve({ success: false, error: 'State mismatch.' });
-      if (!code) return; // ignore requests without a code (e.g. favicon)
+      if (error) return finish({ success: false, error: `Twitch denied: ${error}` });
+      if (returnedState !== state) return finish({ success: false, error: 'State mismatch.' });
 
       try {
         const tokenRes = await fetch('https://id.twitch.tv/oauth2/token', {
@@ -292,7 +311,7 @@ ipcMain.handle('start-oauth', async (_, { clientId, clientSecret, scopes }) => {
           });
           const userData = await userRes.json();
           const user = userData.data?.[0];
-          resolve({
+          finish({
             success: true,
             accessToken: tokenData.access_token,
             refreshToken: tokenData.refresh_token,
@@ -301,11 +320,15 @@ ipcMain.handle('start-oauth', async (_, { clientId, clientSecret, scopes }) => {
             displayName: user?.display_name
           });
         } else {
-          resolve({ success: false, error: tokenData.message || 'Token exchange failed.' });
+          finish({ success: false, error: tokenData.message || 'Token exchange failed.' });
         }
       } catch (err) {
-        resolve({ success: false, error: err.message });
+        finish({ success: false, error: err.message });
       }
+    });
+
+    server.on('error', (err) => {
+      finish({ success: false, error: `Could not start local OAuth callback server: ${err.message}` });
     });
 
     server.listen(7878, () => {

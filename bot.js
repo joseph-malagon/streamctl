@@ -22,10 +22,10 @@ class TwitchBot {
 
   async start() {
     this.running = true;
-    // Only start the overlay server once — keep it alive across bot restarts
-    // so OBS never loses the socket.io connection and doesn't need to refresh
-    if (!this.overlayServer) await this._startOverlayServer();
     await this._startChat();
+    // Start the overlay after chat credentials pass validation so failed starts
+    // do not leave a server bound to port 9000.
+    if (!this.overlayServer) await this._startOverlayServer();
     if (this.config.credentials?.accessToken) {
       this._startEventSubPolling();
       this._startTokenRefreshWatcher();
@@ -47,7 +47,14 @@ class TwitchBot {
       clearInterval(this.tokenRefreshInterval);
       this.tokenRefreshInterval = null;
     }
-    // Overlay server stays running so OBS keeps its socket connection
+    if (this.overlayIO) {
+      this.overlayIO.close();
+      this.overlayIO = null;
+    }
+    if (this.overlayServer) {
+      await new Promise((resolve) => this.overlayServer.close(resolve));
+      this.overlayServer = null;
+    }
     this.onEvent('status', { connected: false, message: 'Bot stopped.' });
   }
 
@@ -174,7 +181,7 @@ class TwitchBot {
 
     if (!channel || !botUsername || !oauthToken) {
       this.onEvent('status', { connected: false, message: 'Missing chat credentials — connect bot account in Settings.' });
-      return;
+      throw new Error('Missing chat credentials — connect bot account in Settings.');
     }
 
     // Dedup set — stores message IDs we've already processed
@@ -352,7 +359,8 @@ class TwitchBot {
         if (this._processedRedemptions?.has(redemption.id)) continue;
         if (!this._processedRedemptions) this._processedRedemptions = new Set();
         this._processedRedemptions.add(redemption.id);
-        this._handleRedemption(redemption);
+        const handled = this._handleRedemption(redemption);
+        if (handled) await this._setRedemptionStatus(redemption, 'FULFILLED');
       }
     } catch {}
   }
@@ -398,7 +406,26 @@ class TwitchBot {
         const msg = match.chatMessage.replace(/\{user\}/gi, username);
         this.chatClient.say(`#${this.config.credentials.channel}`, msg).catch(() => {});
       }
+      return true;
     }
+    return false;
+  }
+
+  async _setRedemptionStatus(redemption, status) {
+    const { broadcasterId } = this.config.credentials || {};
+    const rewardId = redemption.reward?.id;
+    if (!broadcasterId || !rewardId || !redemption.id) return;
+
+    try {
+      await this._apiFetch(
+        `https://api.twitch.tv/helix/channel_points/custom_rewards/redemptions?broadcaster_id=${broadcasterId}&reward_id=${rewardId}&id=${redemption.id}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status })
+        }
+      );
+    } catch {}
   }
 
   _handleFollow(username) {
@@ -482,7 +509,8 @@ class TwitchBot {
     });
     // Serve local media files (images/GIFs) for meme popups
     expressApp.get('/media', (req, res) => {
-      const filePath = decodeURIComponent(req.query.path || '');
+      const filePath = path.resolve(decodeURIComponent(req.query.path || ''));
+      if (!this._allowedMediaFiles().has(filePath)) return res.status(403).send('Forbidden');
       if (!filePath || !fs.existsSync(filePath)) return res.status(404).send('Not found');
       const ext = path.extname(filePath).toLowerCase();
       if (!['.gif', '.png', '.jpg', '.jpeg', '.webp'].includes(ext)) return res.status(403).send('Forbidden');
@@ -496,8 +524,9 @@ class TwitchBot {
       console.log('Overlay connected');
     });
 
-    await new Promise((resolve) => {
-      this.overlayServer.listen(9000, resolve);
+    await new Promise((resolve, reject) => {
+      this.overlayServer.once('error', reject);
+      this.overlayServer.listen(9000, '127.0.0.1', resolve);
     });
   }
 
@@ -505,6 +534,18 @@ class TwitchBot {
     if (this.overlayIO) {
       this.overlayIO.emit('animate', animConfig);
     }
+  }
+
+  _allowedMediaFiles() {
+    const files = new Set();
+    const add = (filePath) => {
+      if (filePath) files.add(path.resolve(filePath));
+    };
+
+    for (const redemption of this.config.redemptions || []) add(redemption.imageFile);
+    for (const trigger of this.config.chatTriggers || []) add(trigger.imageFile);
+
+    return files;
   }
 }
 

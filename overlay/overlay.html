@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Stream Overlay</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.6.1/socket.io.min.js"></script>
+<script src="/socket.io/socket.io.js"></script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -208,13 +208,14 @@ function processQueue() {
 function dispatch(data, durationMs, done) {
   const { text, style = 'slideIn', username, color = '#7c5cfc', position = 'topRight' } = data;
   const displayText = (text || '').replace(/\{user\}/gi, username || '');
+  const safeColor = /^#[0-9a-f]{6}$/i.test(color) ? color : '#7c5cfc';
 
   if (style === 'slideIn') {
-    showCard(displayText, username, color, durationMs, position, done);
+    showCard(displayText, username, safeColor, durationMs, position, done);
   } else {
-    if (style === 'explosion') spawnBurst(color);
+    if (style === 'explosion') spawnBurst(safeColor);
     if (style === 'confetti')  spawnConfetti();
-    showText(displayText, style, color, durationMs, position, done);
+    showText(displayText, style, safeColor, durationMs, position, done);
   }
 }
 
@@ -233,13 +234,26 @@ function showCard(text, username, color, durationMs, position, done) {
   const displayName = username || text;
   const sub = text && text !== displayName ? text : '';
 
-  card.innerHTML = `
-    <div class="alert-bar" style="background:linear-gradient(180deg,${color},${color}88)"></div>
-    <div class="alert-icon">✨</div>
-    <div class="alert-content">
-      <div class="alert-name" style="text-shadow:0 0 20px ${color}cc">${displayName}</div>
-      ${sub ? `<div class="alert-sub">${sub}</div>` : ''}
-    </div>`;
+  const bar = document.createElement('div');
+  bar.className = 'alert-bar';
+  bar.style.background = `linear-gradient(180deg,${color},${color}88)`;
+  const icon = document.createElement('div');
+  icon.className = 'alert-icon';
+  icon.textContent = '✨';
+  const content = document.createElement('div');
+  content.className = 'alert-content';
+  const name = document.createElement('div');
+  name.className = 'alert-name';
+  name.style.textShadow = `0 0 20px ${color}cc`;
+  name.textContent = displayName;
+  content.appendChild(name);
+  if (sub) {
+    const subEl = document.createElement('div');
+    subEl.className = 'alert-sub';
+    subEl.textContent = sub;
+    content.appendChild(subEl);
+  }
+  card.append(bar, icon, content);
 
   const sec = durationMs / 1000;
   card.style.animation = `${fromRight ? 'card-right' : 'card-left'} ${sec}s cubic-bezier(0.22,1,0.36,1) forwards`;

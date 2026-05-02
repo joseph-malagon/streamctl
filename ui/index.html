@@ -782,10 +782,16 @@
 <div id="toast"></div>
 
 <script>
-const { ipcRenderer, shell } = require('electron');
+if (!window.streamctl) {
+  document.body.innerHTML = '<div style="padding:24px;font-family:system-ui;color:#e8e8f0;background:#0d0d14;min-height:100vh;"><h2 style="margin-bottom:8px;">StreamCtl could not start</h2><p style="color:#aaa">The Electron preload bridge did not load. Restart the app and check the developer console if this persists.</p></div>';
+  throw new Error('StreamCtl preload bridge did not load.');
+}
+
+const { ipc, appVersion, pathToFileURL, openExternal: openExternalURL } = window.streamctl;
+const ipcRenderer = ipc;
 
 // ── State ──────────────────────────────────────────────────────────────────
-let config = {
+const defaultConfig = {
   credentials: {},
   redemptions: [],
   chatTriggers: [],
@@ -797,19 +803,90 @@ let config = {
   }
 };
 
+function cloneDefaultConfig() {
+  return JSON.parse(JSON.stringify(defaultConfig));
+}
+
+function normalizeConfig(saved = {}) {
+  const defaults = cloneDefaultConfig();
+  const source = saved && typeof saved === 'object' ? saved : {};
+  const merged = {
+    ...defaults,
+    ...source,
+    credentials: {
+      ...defaults.credentials,
+      ...(source.credentials || {})
+    },
+    redemptions: Array.isArray(source.redemptions) ? source.redemptions : defaults.redemptions,
+    chatTriggers: Array.isArray(source.chatTriggers) ? source.chatTriggers : defaults.chatTriggers,
+    alerts: {}
+  };
+
+  for (const [key, alertDefaults] of Object.entries(defaults.alerts)) {
+    const savedAlert = source.alerts?.[key] || {};
+    merged.alerts[key] = {
+      ...alertDefaults,
+      ...savedAlert,
+      animation: savedAlert.animation ?? alertDefaults.animation
+    };
+  }
+
+  return merged;
+}
+
+let config = normalizeConfig();
+
 let connected = false;
 let stats = { follows: 0, redemptions: 0, triggers: 0 };
 let tempSoundFile = { redemption: null, trigger: null };
 let selectedAudioDeviceId = '';
 let audioVolume = 1.0;
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function jsString(value) {
+  return String(value ?? '')
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/\r/g, '\\r')
+    .replace(/\n/g, '\\n')
+    .replace(/</g, '\\x3c');
+}
+
+function sanitizeActivityHtml(html) {
+  const template = document.createElement('template');
+  template.innerHTML = String(html ?? '');
+  const allowedTags = new Set(['STRONG', 'EM']);
+  const walk = (node) => {
+    for (const child of [...node.childNodes]) {
+      if (child.nodeType === Node.ELEMENT_NODE) {
+        if (!allowedTags.has(child.tagName)) {
+          child.replaceWith(document.createTextNode(child.textContent || ''));
+          continue;
+        }
+        for (const attr of [...child.attributes]) child.removeAttribute(attr.name);
+      }
+      walk(child);
+    }
+  };
+  walk(template.content);
+  return template.innerHTML;
+}
+
 // ── Init ───────────────────────────────────────────────────────────────────
 (async () => {
   const saved = await ipcRenderer.invoke('get-config');
   if (saved && Object.keys(saved).length) {
-    config = { ...config, ...saved };
+    config = normalizeConfig(saved);
   }
-  document.getElementById('appVersion').textContent = 'v' + require('../package.json').version;
+  document.getElementById('appVersion').textContent = 'v' + appVersion;
   selectedAudioDeviceId = config.audioOutputDeviceId || '';
   audioVolume = config.audioVolume ?? 1.0;
   const slider = document.getElementById('volumeSlider');
@@ -828,7 +905,16 @@ let audioVolume = 1.0;
   history.forEach(({ icon, html, time }) => {
     const el = document.createElement('div');
     el.className = 'activity-item';
-    el.innerHTML = `<span class="activity-icon">${icon}</span><span class="activity-text">${html}</span><span class="activity-time">${time}</span>`;
+    const iconEl = document.createElement('span');
+    iconEl.className = 'activity-icon';
+    iconEl.textContent = icon || '';
+    const textEl = document.createElement('span');
+    textEl.className = 'activity-text';
+    textEl.innerHTML = sanitizeActivityHtml(html);
+    const timeEl = document.createElement('span');
+    timeEl.className = 'activity-time';
+    timeEl.textContent = time || '';
+    el.append(iconEl, textEl, timeEl);
     feed.appendChild(el);
   });
   if (!history.length) {
@@ -903,34 +989,34 @@ ipcRenderer.on('bot-event', (_, { event, data }) => {
   if (event === 'follow') {
     stats.follows++;
     document.getElementById('statFollows').textContent = stats.follows;
-    addActivity('❤️', `<strong>${data.username}</strong> followed!`);
+    addActivity('❤️', `<strong>${escapeHtml(data.username)}</strong> followed!`);
     if (data.hasSound) showSoundBar();
   }
   if (event === 'redemption') {
     stats.redemptions++;
     document.getElementById('statRedemptions').textContent = stats.redemptions;
-    addActivity('🎮', `<strong>${data.username}</strong> redeemed <strong>${data.reward}</strong>`);
+    addActivity('🎮', `<strong>${escapeHtml(data.username)}</strong> redeemed <strong>${escapeHtml(data.reward)}</strong>`);
     if (data.hasSound) showSoundBar();
   }
   if (event === 'trigger-fired') {
     stats.triggers++;
     document.getElementById('statTriggers').textContent = stats.triggers;
-    addActivity('💬', `Trigger <strong>${data.trigger}</strong> fired for <strong>${data.username}</strong>${data.test ? ' <em>(test)</em>' : ''}`);
+    addActivity('💬', `Trigger <strong>${escapeHtml(data.trigger)}</strong> fired for <strong>${escapeHtml(data.username)}</strong>${data.test ? ' <em>(test)</em>' : ''}`);
     if (data.hasSound) showSoundBar();
   }
   if (event === 'bits') {
-    addActivity('💎', `<strong>${data.username}</strong> cheered <strong>${data.bits}</strong> bits!`);
+    addActivity('💎', `<strong>${escapeHtml(data.username)}</strong> cheered <strong>${escapeHtml(data.bits)}</strong> bits!`);
     showSoundBar();
   }
   if (event === 'sub') {
-    const label = data.gifter ? `<strong>${data.username}</strong> was gifted a sub by <strong>${data.gifter}</strong>` :
-                  data.months ? `<strong>${data.username}</strong> resubscribed (${data.months} months)` :
-                                `<strong>${data.username}</strong> subscribed!`;
+    const label = data.gifter ? `<strong>${escapeHtml(data.username)}</strong> was gifted a sub by <strong>${escapeHtml(data.gifter)}</strong>` :
+                  data.months ? `<strong>${escapeHtml(data.username)}</strong> resubscribed (${escapeHtml(data.months)} months)` :
+                                `<strong>${escapeHtml(data.username)}</strong> subscribed!`;
     addActivity('⭐', label);
     showSoundBar();
   }
   if (event === 'raid') {
-    addActivity('🚀', `<strong>${data.username}</strong> raided with <strong>${data.viewers}</strong> viewers!`);
+    addActivity('🚀', `<strong>${escapeHtml(data.username)}</strong> raided with <strong>${escapeHtml(data.viewers)}</strong> viewers!`);
     showSoundBar();
   }
   if (event === 'sound-played') {
@@ -938,13 +1024,13 @@ ipcRenderer.on('bot-event', (_, { event, data }) => {
     if (data.file) playAudioFile(data.file);
   }
   if (event === 'chat') {
-    addActivity('💬', `<strong>${data.username}</strong>: ${data.message.substring(0,60)}`);
+    addActivity('💬', `<strong>${escapeHtml(data.username)}</strong>: ${escapeHtml(String(data.message || '').substring(0,60))}`);
   }
   if (event === 'token-refreshed') {
     addActivity('🔑', 'Access token refreshed automatically.');
   }
   if (event === 'token-error') {
-    addActivity('⚠️', `<strong style="color:var(--red)">${data.message}</strong>`);
+    addActivity('⚠️', `<strong>${escapeHtml(data.message)}</strong>`);
     toast(data.message, 'error');
   }
 });
@@ -1007,6 +1093,7 @@ async function startOAuth() {
     clientId, clientSecret,
     scopes: [
       'channel:read:redemptions',
+      'channel:manage:redemptions',
       'moderator:read:followers',
       'channel:read:subscriptions',
     ]
@@ -1074,7 +1161,7 @@ async function startBotOAuth() {
     config.credentials = {
       ...config.credentials,
       botAccessToken: result.accessToken,
-      botRefreshToken: result.refresh_token,
+      botRefreshToken: result.refreshToken,
       botLogin: result.login,
       botDisplayName: result.displayName,
       botUsername: result.login,
@@ -1116,10 +1203,10 @@ function renderRedemptions() {
     <div class="list-item">
       <label class="toggle"><input type="checkbox" ${r.enabled?'checked':''} onchange="toggleRedemption(${i},this.checked)"><span class="toggle-slider"></span></label>
       <div class="list-item-info">
-        <div class="list-item-name">${r.rewardName}</div>
-        <div class="list-item-sub">${r.soundFile ? '🔊 ' + r.soundFile.split(/[\\/]/).pop() : 'No sound'} ${r.animation?.text ? '· 🎬 ' + r.animation.text : ''}</div>
+        <div class="list-item-name">${escapeHtml(r.rewardName)}</div>
+        <div class="list-item-sub">${r.soundFile ? '🔊 ' + escapeHtml(r.soundFile.split(/[\\/]/).pop()) : 'No sound'} ${r.animation?.text ? '· 🎬 ' + escapeHtml(r.animation.text) : ''}</div>
       </div>
-      <span class="pill pill-purple">${r.animation?.style || 'none'}</span>
+      <span class="pill pill-purple">${escapeHtml(r.animation?.style || 'none')}</span>
       <button class="btn btn-danger btn-sm" onclick="removeRedemption(${i})">✕</button>
     </div>
   `).join('');
@@ -1226,11 +1313,11 @@ function renderTriggers() {
         </label>
         <div class="list-item-info">
           <div style="display:flex;align-items:center;gap:6px;">
-            <span class="list-item-name">${t.keyword}</span>
-            <span class="pill pill-pink" style="font-size:9px;">${t.matchType||'contains'}</span>
+            <span class="list-item-name">${escapeHtml(t.keyword)}</span>
+            <span class="pill pill-pink" style="font-size:9px;">${escapeHtml(t.matchType||'contains')}</span>
             ${t.wholeWord ? '<span class="pill pill-purple" style="font-size:9px;">whole word</span>' : ''}
           </div>
-          <div class="list-item-sub" id="trigger-sub-${idx}">${t.response || '<em>no response</em>'}</div>
+          <div class="list-item-sub" id="trigger-sub-${idx}">${t.response ? escapeHtml(t.response) : '<em>no response</em>'}</div>
         </div>
         <div style="display:flex;gap:6px;flex-shrink:0;">
           <button class="btn btn-ghost btn-sm" onclick="moveTrigger(${idx},-1)" ${idx===0?'disabled':''} title="Move up">↑</button>
@@ -1246,11 +1333,11 @@ function renderTriggers() {
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px;">
           <div class="field" style="margin:0;">
             <label>Trigger Keyword</label>
-            <input type="text" value="${t.keyword||''}" onchange="updateTriggerField(${idx},'keyword',this.value)" placeholder="e.g. congratulations">
+            <input type="text" value="${escapeHtml(t.keyword||'')}" onchange="updateTriggerField(${idx},'keyword',this.value)" placeholder="e.g. congratulations">
           </div>
           <div class="field" style="margin:0;">
             <label>Response</label>
-            <input type="text" value="${t.response||''}" onchange="updateTriggerField(${idx},'response',this.value)" placeholder="Bot says... use {user}">
+            <input type="text" value="${escapeHtml(t.response||'')}" onchange="updateTriggerField(${idx},'response',this.value)" placeholder="Bot says... use {user}">
           </div>
           <div class="field" style="margin:0;">
             <label>Match Type</label>
@@ -1264,7 +1351,7 @@ function renderTriggers() {
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
           <div class="field" style="margin:0;">
             <label>Cooldown (seconds)</label>
-            <input type="number" min="0" max="300" value="${t.cooldownSeconds??3}" onchange="updateTriggerField(${idx},'cooldownSeconds',+this.value)">
+            <input type="number" min="0" max="300" value="${escapeHtml(t.cooldownSeconds??3)}" onchange="updateTriggerField(${idx},'cooldownSeconds',+this.value)">
           </div>
           <div style="display:flex;align-items:center;gap:8px;padding-top:20px;">
             <label class="toggle" style="margin:0;">
@@ -1277,16 +1364,16 @@ function renderTriggers() {
         <div class="field" style="margin-bottom:8px;">
           <label>Sound File</label>
           <div class="file-picker">
-            <span class="file-picker-name">${t.soundFile ? t.soundFile.split(/[\\/]/).pop() : 'No file selected'}</span>
+            <span class="file-picker-name">${t.soundFile ? escapeHtml(t.soundFile.split(/[\\/]/).pop()) : 'No file selected'}</span>
             <button class="btn btn-ghost btn-sm" onclick="pickTriggerSoundFor(${idx})">Browse</button>
-            ${t.soundFile ? `<button class="btn btn-ghost btn-sm" onclick="ipcRenderer.invoke('test-sound','${t.soundFile.replace(/\\/g,'\\\\').replace(/'/g,"\\'")}')">▶</button>` : ''}
+            ${t.soundFile ? `<button class="btn btn-ghost btn-sm" onclick="ipcRenderer.invoke('test-sound','${jsString(t.soundFile)}')">▶</button>` : ''}
             ${t.soundFile ? `<button class="btn btn-danger btn-sm" onclick="updateTriggerField(${idx},'soundFile',null);renderTriggers()">✕</button>` : ''}
           </div>
         </div>
         <div class="field" style="margin-bottom:8px;">
           <label>Meme Image (GIF / PNG / JPG)</label>
           <div class="file-picker">
-            <span class="file-picker-name">${t.imageFile ? t.imageFile.split(/[\\/]/).pop() : 'No file selected'}</span>
+            <span class="file-picker-name">${t.imageFile ? escapeHtml(t.imageFile.split(/[\\/]/).pop()) : 'No file selected'}</span>
             <button class="btn btn-ghost btn-sm" onclick="pickTriggerMemeFor(${idx})">Browse</button>
             ${t.imageFile ? `<button class="btn btn-danger btn-sm" onclick="updateTriggerField(${idx},'imageFile',null);renderTriggers()">✕</button>` : ''}
           </div>
@@ -1295,7 +1382,7 @@ function renderTriggers() {
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px;">
           <div class="field" style="margin:0;">
             <label>Meme Duration (seconds)</label>
-            <input type="number" min="1" max="30" value="${t.memeDuration||5}" onchange="updateTriggerField(${idx},'memeDuration',+this.value)">
+            <input type="number" min="1" max="30" value="${escapeHtml(t.memeDuration||5)}" onchange="updateTriggerField(${idx},'memeDuration',+this.value)">
           </div>
           <div class="field" style="margin:0;">
             <label>Meme Position</label>
@@ -1305,7 +1392,7 @@ function renderTriggers() {
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
           <div class="field" style="margin:0;">
             <label>Overlay Text</label>
-            <input type="text" value="${t.animation?.text||''}" onchange="updateTriggerAnim(${idx},'text',this.value)" placeholder="🎉 shown on screen">
+            <input type="text" value="${escapeHtml(t.animation?.text||'')}" onchange="updateTriggerAnim(${idx},'text',this.value)" placeholder="🎉 shown on screen">
           </div>
           <div class="field" style="margin:0;">
             <label>Animation Style</label>
@@ -1319,11 +1406,11 @@ function renderTriggers() {
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px;">
           <div class="field" style="margin:0;">
             <label>Duration (seconds)</label>
-            <input type="number" min="1" max="15" value="${t.animation?.duration??4}" onchange="updateTriggerAnim(${idx},'duration',+this.value)">
+            <input type="number" min="1" max="15" value="${escapeHtml(t.animation?.duration??4)}" onchange="updateTriggerAnim(${idx},'duration',+this.value)">
           </div>
           <div class="field" style="margin:0;">
             <label>Color</label>
-            <input type="color" value="${t.animation?.color||'#7c5cfc'}" onchange="updateTriggerAnim(${idx},'color',this.value)" style="height:38px;padding:4px 8px;cursor:pointer;">
+            <input type="color" value="${escapeHtml(t.animation?.color||'#7c5cfc')}" onchange="updateTriggerAnim(${idx},'color',this.value)" style="height:38px;padding:4px 8px;cursor:pointer;">
           </div>
         </div>
       </div>` : ''}
@@ -1440,12 +1527,12 @@ function renderAlerts() {
       </div>
       <div class="field">
         <label>Chat Message</label>
-        <input type="text" value="${a.chatMessage}" onchange="updateAlertChat('${t.key}',this.value)" placeholder="Use {user} for the username">
+        <input type="text" value="${escapeHtml(a.chatMessage)}" onchange="updateAlertChat('${t.key}',this.value)" placeholder="Use {user} for the username">
       </div>
       <div class="field">
         <label>Sound File</label>
         <div class="file-picker">
-          <span class="file-picker-name">${a.soundFile ? a.soundFile.split(/[\\/]/).pop() : 'No file selected'}</span>
+          <span class="file-picker-name">${a.soundFile ? escapeHtml(a.soundFile.split(/[\\/]/).pop()) : 'No file selected'}</span>
           <button class="btn btn-ghost btn-sm" onclick="pickAlertSound('${t.key}')">Browse</button>
           ${a.soundFile ? `<button class="btn btn-ghost btn-sm" onclick="testAlertSound('${t.key}')">▶ Test</button>` : ''}
         </div>
@@ -1453,14 +1540,14 @@ function renderAlerts() {
       ${t.key === 'bits' ? `
       <div class="field">
         <label>Minimum Bits to Trigger</label>
-        <input type="number" min="1" value="${a.threshold ?? 1}" onchange="updateAlertField('${t.key}','threshold',+this.value)" style="width:140px;">
+        <input type="number" min="1" value="${escapeHtml(a.threshold ?? 1)}" onchange="updateAlertField('${t.key}','threshold',+this.value)" style="width:140px;">
       </div>` : ''}
       <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
         <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px;">Animation</div>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:8px;">
           <div class="field" style="margin:0;">
             <label>Overlay Text</label>
-            <input type="text" value="${a.animation?.text||''}" onchange="updateAlertAnim('${t.key}','text',this.value)" placeholder="e.g. Thanks for following!">
+            <input type="text" value="${escapeHtml(a.animation?.text||'')}" onchange="updateAlertAnim('${t.key}','text',this.value)" placeholder="e.g. Thanks for following!">
           </div>
           <div class="field" style="margin:0;">
             <label>Style</label>
@@ -1474,11 +1561,11 @@ function renderAlerts() {
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
           <div class="field" style="margin:0;">
             <label>Duration (seconds)</label>
-            <input type="number" min="1" max="15" value="${a.animation?.duration??4}" onchange="updateAlertAnim('${t.key}','duration',+this.value)">
+            <input type="number" min="1" max="15" value="${escapeHtml(a.animation?.duration??4)}" onchange="updateAlertAnim('${t.key}','duration',+this.value)">
           </div>
           <div class="field" style="margin:0;">
             <label>Color</label>
-            <input type="color" value="${a.animation?.color||'#7c5cfc'}" onchange="updateAlertAnim('${t.key}','color',this.value)" style="height:38px;padding:4px 8px;cursor:pointer;">
+            <input type="color" value="${escapeHtml(a.animation?.color||'#7c5cfc')}" onchange="updateAlertAnim('${t.key}','color',this.value)" style="height:38px;padding:4px 8px;cursor:pointer;">
           </div>
         </div>
       </div>
@@ -1527,7 +1614,7 @@ async function importConfig() {
   const imported = await ipcRenderer.invoke('import-config');
   if (!imported) return;
   if (imported.error) return toast(imported.error, 'error');
-  config = { ...config, ...imported };
+  config = normalizeConfig(imported);
   loadCredentialFields();
   renderRedemptions();
   renderTriggers();
@@ -1612,8 +1699,7 @@ async function saveVolume(val) {
 
 async function playAudioFile(filePath) {
   try {
-    const { pathToFileURL } = require('url');
-    const audio = new Audio(pathToFileURL(filePath).href);
+    const audio = new Audio(pathToFileURL(filePath));
     audio.volume = audioVolume;
     if (selectedAudioDeviceId) {
       await audio.setSinkId(selectedAudioDeviceId);
@@ -1626,6 +1712,7 @@ async function playAudioFile(filePath) {
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 async function saveConfig() {
+  config = normalizeConfig(config);
   await ipcRenderer.invoke('save-config', config);
 }
 
@@ -1649,7 +1736,16 @@ function addActivity(icon, html) {
   const time = new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'});
   const el = document.createElement('div');
   el.className = 'activity-item';
-  el.innerHTML = `<span class="activity-icon">${icon}</span><span class="activity-text">${html}</span><span class="activity-time">${time}</span>`;
+  const iconEl = document.createElement('span');
+  iconEl.className = 'activity-icon';
+  iconEl.textContent = icon || '';
+  const textEl = document.createElement('span');
+  textEl.className = 'activity-text';
+  textEl.innerHTML = sanitizeActivityHtml(html);
+  const timeEl = document.createElement('span');
+  timeEl.className = 'activity-time';
+  timeEl.textContent = time;
+  el.append(iconEl, textEl, timeEl);
   feed.insertBefore(el, feed.firstChild);
   while (feed.children.length > 50) feed.removeChild(feed.lastChild);
   // Debounced persist — save 2s after the last event
@@ -1678,7 +1774,7 @@ function toast(msg, type='') {
   toastTimeout = setTimeout(() => { el.className = ''; }, 2800);
 }
 
-function openExternal(url) { shell.openExternal(url); }
+function openExternal(url) { openExternalURL(url); }
 </script>
 </body>
 </html>
