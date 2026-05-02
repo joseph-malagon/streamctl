@@ -453,7 +453,7 @@
           <p>3. Fill in:
             <span style="display:block;margin:6px 0 6px 16px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-family:var(--mono);font-size:12px;">
               Name: <span style="color:var(--accent)">StreamCtl</span> (must be unique — add numbers if taken)<br>
-              OAuth Redirect URL: <span style="color:var(--green)">http://localhost:3000/callback</span><br>
+              OAuth Redirect URL: <span style="color:var(--green)">http://localhost</span><br>
               Category: <span style="color:var(--accent)">Chat Bot</span>
             </span>
           </p>
@@ -508,26 +508,38 @@
       <div class="card">
         <div class="card-header">
           <div>
-            <div class="card-title">Step 3 — Bot Chat Account</div>
+            <div class="card-title">Step 3 — Connect Your Bot Account</div>
             <div class="card-subtitle">A second Twitch account that sends messages in your chat</div>
           </div>
+          <span class="pill pill-green" id="botOauthBadge" style="display:none;">CONNECTED</span>
         </div>
+
         <p style="font-size:13px;color:var(--muted);margin-bottom:14px;line-height:1.7;">
-          Create a second Twitch account (e.g. <code style="color:var(--accent)">yourname_bot</code>), then get its chat token at
-          <a href="#" style="color:var(--accent);text-decoration:none;" onclick="openExternal('https://twitchapps.com/tmi/')">twitchapps.com/tmi</a>
-          — log in as the bot account. Then in your main chat, type <code style="color:var(--accent)">/mod yourbotname</code>.
+          First create a second Twitch account for your bot (e.g. <code style="color:var(--accent)">yourname_bot</code>).
+          Then click the button below — <strong style="color:var(--text)">make sure to log in as the bot account</strong>, not your main account.
+          Afterwards, in your main Twitch chat type <code style="color:var(--accent)">/mod yourname_bot</code>.
         </p>
-        <div class="field-row">
-          <div class="field">
-            <label>Bot Username</label>
-            <input type="text" id="credBotUsername" placeholder="yourname_bot">
-          </div>
-          <div class="field">
-            <label>Bot OAuth Token</label>
-            <input type="password" id="credOauthToken" placeholder="oauth:xxxxxxxxxxxxxxxx">
+
+        <div id="botOauthConnected" style="display:none;margin-bottom:16px;">
+          <div style="display:flex;align-items:center;gap:10px;padding:12px;background:rgba(61,220,132,0.08);border:1px solid rgba(61,220,132,0.2);border-radius:8px;">
+            <span style="font-size:20px">🤖</span>
+            <div>
+              <div style="font-size:13px;font-weight:600;color:var(--green)" id="botOauthUsername"></div>
+              <div style="font-size:11px;color:var(--muted)">Bot account connected — ready to send chat messages</div>
+            </div>
+            <button class="btn btn-ghost btn-sm" style="margin-left:auto;" onclick="disconnectBotOAuth()">Disconnect</button>
           </div>
         </div>
-        <button class="btn btn-primary" onclick="saveCredentials()">Save All & Connect</button>
+
+        <div id="botOauthNotConnected">
+          <button class="btn btn-primary" id="botOauthBtn" onclick="startBotOAuth()" style="background:linear-gradient(135deg,#9147ff,#6441a5);">
+            🤖 Connect Bot Account
+          </button>
+        </div>
+
+        <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
+          <button class="btn btn-primary" onclick="saveCredentials()">Save All & Connect</button>
+        </div>
       </div>
     </div>
 
@@ -790,10 +802,11 @@ function loadCredentialFields() {
   const c = config.credentials || {};
   document.getElementById('credClientId').value = c.clientId || '';
   document.getElementById('credClientSecret').value = c.clientSecret || '';
-  document.getElementById('credBotUsername').value = c.botUsername || '';
-  document.getElementById('credOauthToken').value = c.oauthToken || '';
   if (c.accessToken && c.displayName) {
     showOAuthConnected(c.displayName, c.broadcasterId);
+  }
+  if (c.botAccessToken && c.botLogin) {
+    showBotOAuthConnected(c.botLogin);
   }
 }
 
@@ -802,34 +815,27 @@ async function saveCredentials() {
     ...config.credentials,
     clientId: document.getElementById('credClientId').value.trim(),
     clientSecret: document.getElementById('credClientSecret').value.trim(),
-    botUsername: document.getElementById('credBotUsername').value.trim(),
-    oauthToken: document.getElementById('credOauthToken').value.trim(),
-    channel: config.credentials?.login || config.credentials?.channel || ''
   };
   await ipcRenderer.invoke('save-config', config);
   toast('Credentials saved!', 'success');
 }
 
+// ── Main account OAuth ─────────────────────────────────────────────────────
 async function startOAuth() {
   const clientId = document.getElementById('credClientId').value.trim();
   const clientSecret = document.getElementById('credClientSecret').value.trim();
-  if (!clientId || !clientSecret) {
-    return toast('Enter Client ID and Client Secret first', 'error');
-  }
+  if (!clientId || !clientSecret) return toast('Enter Client ID and Client Secret first', 'error');
 
   const btn = document.getElementById('oauthBtn');
   btn.textContent = 'Waiting for Twitch login...';
   btn.disabled = true;
 
   const result = await ipcRenderer.invoke('start-oauth', {
-    clientId,
-    clientSecret,
+    clientId, clientSecret,
     scopes: [
       'channel:read:redemptions',
       'moderator:read:followers',
       'channel:read:subscriptions',
-      'chat:read',
-      'chat:edit'
     ]
   });
 
@@ -839,8 +845,7 @@ async function startOAuth() {
   if (result.success) {
     config.credentials = {
       ...config.credentials,
-      clientId,
-      clientSecret,
+      clientId, clientSecret,
       accessToken: result.accessToken,
       refreshToken: result.refreshToken,
       broadcasterId: result.broadcasterId,
@@ -865,12 +870,66 @@ function showOAuthConnected(displayName, broadcasterId) {
 }
 
 async function disconnectOAuth() {
-  config.credentials = { ...config.credentials, accessToken: null, refreshToken: null, broadcasterId: null, login: null, displayName: null };
+  config.credentials = { ...config.credentials, accessToken: null, refreshToken: null, broadcasterId: null, login: null, displayName: null, channel: null };
   await ipcRenderer.invoke('save-config', config);
   document.getElementById('oauthNotConnected').style.display = 'block';
   document.getElementById('oauthConnected').style.display = 'none';
   document.getElementById('oauthBadge').style.display = 'none';
-  toast('Disconnected from Twitch.');
+  toast('Disconnected main account.');
+}
+
+// ── Bot account OAuth ──────────────────────────────────────────────────────
+async function startBotOAuth() {
+  const clientId = document.getElementById('credClientId').value.trim();
+  const clientSecret = document.getElementById('credClientSecret').value.trim();
+  if (!clientId || !clientSecret) return toast('Enter Client ID and Client Secret first', 'error');
+
+  const btn = document.getElementById('botOauthBtn');
+  btn.textContent = 'Waiting for bot login...';
+  btn.disabled = true;
+
+  // Bot only needs chat scopes
+  const result = await ipcRenderer.invoke('start-oauth', {
+    clientId, clientSecret,
+    scopes: ['chat:read', 'chat:edit']
+  });
+
+  btn.textContent = '🤖 Connect Bot Account';
+  btn.disabled = false;
+
+  if (result.success) {
+    config.credentials = {
+      ...config.credentials,
+      botAccessToken: result.accessToken,
+      botRefreshToken: result.refresh_token,
+      botLogin: result.login,
+      botDisplayName: result.displayName,
+      botUsername: result.login,
+      // Convert to tmi.js oauth format
+      oauthToken: `oauth:${result.accessToken}`
+    };
+    await ipcRenderer.invoke('save-config', config);
+    showBotOAuthConnected(result.displayName);
+    toast(`Bot connected as ${result.displayName}!`, 'success');
+  } else {
+    toast('Bot OAuth failed: ' + result.error, 'error');
+  }
+}
+
+function showBotOAuthConnected(displayName) {
+  document.getElementById('botOauthNotConnected').style.display = 'none';
+  document.getElementById('botOauthConnected').style.display = 'block';
+  document.getElementById('botOauthBadge').style.display = 'inline-block';
+  document.getElementById('botOauthUsername').textContent = '🤖 ' + displayName;
+}
+
+async function disconnectBotOAuth() {
+  config.credentials = { ...config.credentials, botAccessToken: null, botRefreshToken: null, botLogin: null, botDisplayName: null, botUsername: null, oauthToken: null };
+  await ipcRenderer.invoke('save-config', config);
+  document.getElementById('botOauthNotConnected').style.display = 'block';
+  document.getElementById('botOauthConnected').style.display = 'none';
+  document.getElementById('botOauthBadge').style.display = 'none';
+  toast('Bot account disconnected.');
 }
 
 // ── Redemptions ────────────────────────────────────────────────────────────
