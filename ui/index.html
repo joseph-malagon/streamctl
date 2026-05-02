@@ -1302,10 +1302,13 @@ function renderAlerts() {
           </div>
           <span class="pill ${t.pill}" style="margin-left:4px;">${a.enabled ? 'ON' : 'OFF'}</span>
         </div>
-        <label class="toggle">
-          <input type="checkbox" ${a.enabled?'checked':''} onchange="toggleAlert('${t.key}',this.checked)">
-          <span class="toggle-slider"></span>
-        </label>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <button class="btn btn-ghost btn-sm" onclick="testAlert('${t.key}')">▶ Test Alert</button>
+          <label class="toggle">
+            <input type="checkbox" ${a.enabled?'checked':''} onchange="toggleAlert('${t.key}',this.checked)">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
       </div>
       <div class="field">
         <label>Chat Message</label>
@@ -1358,6 +1361,13 @@ async function pickAlertSound(key) {
 }
 function testAlertSound(key) {
   if (config.alerts[key].soundFile) ipcRenderer.invoke('test-sound', config.alerts[key].soundFile);
+}
+
+function testAlert(key) {
+  const a = config.alerts[key];
+  if (a.soundFile) ipcRenderer.invoke('test-sound', a.soundFile);
+  if (a.animation?.text) ipcRenderer.invoke('test-overlay', { ...a.animation, username: 'TestUser' });
+  toast(`Testing ${key} alert...`);
 }
 
 // ── Overlay ────────────────────────────────────────────────────────────────
