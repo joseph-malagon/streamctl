@@ -708,6 +708,17 @@
         <div style="font-size:12px;color:var(--muted);margin-top:4px;">
           If you don't see your device, plug it in and click Refresh.
         </div>
+        <div class="field" style="margin-top:16px;margin-bottom:0;">
+          <label>Alert Volume — <span id="volumeLabel">100</span>%</label>
+          <div style="display:flex;align-items:center;gap:12px;margin-top:6px;">
+            <span style="font-size:14px;">🔇</span>
+            <input type="range" id="volumeSlider" min="0" max="100" value="100"
+              style="flex:1;accent-color:var(--accent);cursor:pointer;"
+              oninput="onVolumeChange(this.value)"
+              onchange="saveVolume(this.value)">
+            <span style="font-size:14px;">🔊</span>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -735,6 +746,7 @@ let connected = false;
 let stats = { follows: 0, redemptions: 0, triggers: 0 };
 let tempSoundFile = { redemption: null, trigger: null };
 let selectedAudioDeviceId = '';
+let audioVolume = 1.0;
 
 // ── Init ───────────────────────────────────────────────────────────────────
 (async () => {
@@ -743,6 +755,11 @@ let selectedAudioDeviceId = '';
     config = { ...config, ...saved };
   }
   selectedAudioDeviceId = config.audioOutputDeviceId || '';
+  audioVolume = config.audioVolume ?? 1.0;
+  const slider = document.getElementById('volumeSlider');
+  const pct = Math.round(audioVolume * 100);
+  slider.value = pct;
+  document.getElementById('volumeLabel').textContent = pct;
   loadCredentialFields();
   renderRedemptions();
   renderTriggers();
@@ -1315,10 +1332,22 @@ async function saveAudioDevice(deviceId) {
   toast('Sound output saved!', 'success');
 }
 
+function onVolumeChange(val) {
+  audioVolume = val / 100;
+  document.getElementById('volumeLabel').textContent = val;
+}
+
+async function saveVolume(val) {
+  audioVolume = val / 100;
+  config.audioVolume = audioVolume;
+  await saveConfig();
+}
+
 async function playAudioFile(filePath) {
   try {
     const { pathToFileURL } = require('url');
     const audio = new Audio(pathToFileURL(filePath).href);
+    audio.volume = audioVolume;
     if (selectedAudioDeviceId) {
       await audio.setSinkId(selectedAudioDeviceId);
     }
