@@ -418,6 +418,9 @@
     <div class="nav-item" data-page="overlay">
       <span class="nav-icon">🎬</span> Overlay
     </div>
+    <div class="nav-item" data-page="settings">
+      <span class="nav-icon">⚙</span> Settings
+    </div>
 
     <div class="sidebar-footer">
       <button class="btn-connect" id="connectBtn" onclick="toggleBot()">GO LIVE</button>
@@ -685,6 +688,29 @@
       </div>
     </div>
 
+    <!-- Settings -->
+    <div class="page" id="page-settings">
+      <div class="page-title">Settings</div>
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">Sound Output Device</div>
+            <div class="card-subtitle">Choose which speakers or headphones play alert sounds</div>
+          </div>
+          <button class="btn btn-ghost btn-sm" onclick="refreshAudioDevices()">↻ Refresh</button>
+        </div>
+        <div class="field">
+          <label>Output Device</label>
+          <select id="audioOutputDevice" onchange="saveAudioDevice(this.value)">
+            <option value="">Default (System Default)</option>
+          </select>
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-top:4px;">
+          If you don't see your device, plug it in and click Refresh.
+        </div>
+      </div>
+    </div>
+
   </div><!-- /content -->
 </div><!-- /layout -->
 
@@ -708,6 +734,7 @@ let config = {
 let connected = false;
 let stats = { follows: 0, redemptions: 0, triggers: 0 };
 let tempSoundFile = { redemption: null, trigger: null };
+let selectedAudioDeviceId = '';
 
 // ── Init ───────────────────────────────────────────────────────────────────
 (async () => {
@@ -715,10 +742,12 @@ let tempSoundFile = { redemption: null, trigger: null };
   if (saved && Object.keys(saved).length) {
     config = { ...config, ...saved };
   }
+  selectedAudioDeviceId = config.audioOutputDeviceId || '';
   loadCredentialFields();
   renderRedemptions();
   renderTriggers();
   renderAlerts();
+  refreshAudioDevices();
 })();
 
 // ── Navigation ─────────────────────────────────────────────────────────────
@@ -728,6 +757,7 @@ document.querySelectorAll('.nav-item').forEach(item => {
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
     item.classList.add('active');
     document.getElementById('page-' + item.dataset.page).classList.add('active');
+    if (item.dataset.page === 'settings') refreshAudioDevices();
   });
 });
 
@@ -800,6 +830,7 @@ ipcRenderer.on('bot-event', (_, { event, data }) => {
   }
   if (event === 'sound-played') {
     showSoundBar();
+    if (data.file) playAudioFile(data.file);
   }
   if (event === 'chat') {
     addActivity('💬', `<strong>${data.username}</strong>: ${data.message.substring(0,60)}`);
@@ -1255,6 +1286,46 @@ function copyOverlayUrl() {
 
 function testAnim(style) {
   ipcRenderer.invoke('test-overlay', { text: '✨ Test Animation!', style, username: 'StreamCtl' });
+}
+
+// ── Audio Output ───────────────────────────────────────────────────────────
+async function refreshAudioDevices() {
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const outputs = devices.filter(d => d.kind === 'audiooutput');
+    const select = document.getElementById('audioOutputDevice');
+    if (!select) return;
+    select.innerHTML = '<option value="">Default (System Default)</option>';
+    for (const d of outputs) {
+      const opt = document.createElement('option');
+      opt.value = d.deviceId;
+      opt.textContent = d.label || `Output device (${d.deviceId.substring(0, 8)})`;
+      opt.selected = d.deviceId === selectedAudioDeviceId;
+      select.appendChild(opt);
+    }
+  } catch (e) {
+    console.error('Could not enumerate audio devices:', e);
+  }
+}
+
+async function saveAudioDevice(deviceId) {
+  selectedAudioDeviceId = deviceId;
+  config.audioOutputDeviceId = deviceId;
+  await saveConfig();
+  toast('Sound output saved!', 'success');
+}
+
+async function playAudioFile(filePath) {
+  try {
+    const { pathToFileURL } = require('url');
+    const audio = new Audio(pathToFileURL(filePath).href);
+    if (selectedAudioDeviceId) {
+      await audio.setSinkId(selectedAudioDeviceId);
+    }
+    await audio.play();
+  } catch (e) {
+    console.error('Audio playback error:', e);
+  }
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────

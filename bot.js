@@ -392,26 +392,8 @@ class TwitchBot {
 
   playSound(filePath) {
     if (!filePath || !fs.existsSync(filePath)) return;
-    // Notify UI so the sound bar animates
+    // Renderer handles playback (with user-selected output device) via this event
     this.onEvent('sound-played', { file: filePath });
-    try {
-      const { execFile } = require('child_process');
-      if (process.platform === 'win32') {
-        const safePath = filePath.replace(/'/g, "''");
-        execFile('powershell', [
-          '-NoProfile',
-          '-NonInteractive',
-          '-Command',
-          `$player = New-Object -ComObject WMPlayer.OCX; $player.URL = '${safePath}'; $player.controls.play(); Start-Sleep -Milliseconds ($player.currentMedia.duration * 1000 + 500); $player.close()`
-        ]);
-      } else if (process.platform === 'darwin') {
-        execFile('afplay', [filePath]);
-      } else {
-        execFile('aplay', [filePath]);
-      }
-    } catch (err) {
-      console.error('Sound playback error:', err);
-    }
   }
 
   // ── Overlay Server ──────────────────────────────────────────────────────────

@@ -165,7 +165,12 @@ ipcMain.handle('get-overlay-url', () => {
 });
 
 ipcMain.handle('test-sound', (_, filePath) => {
-  if (bot) bot.playSound(filePath);
+  if (bot) {
+    bot.playSound(filePath);
+  } else if (mainWindow) {
+    // Bot not running — send directly so the renderer can still play/preview the file
+    mainWindow.webContents.send('bot-event', { event: 'sound-played', data: { file: filePath } });
+  }
 });
 
 ipcMain.handle('test-trigger', (_, trigger) => {
