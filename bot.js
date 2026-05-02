@@ -395,10 +395,14 @@ class TwitchBot {
     try {
       const { execFile } = require('child_process');
       if (process.platform === 'win32') {
-        // Use PowerShell to play sound on Windows
+        // Use Windows Media Player via PowerShell — supports MP3, WAV, OGG
+        // Escape single quotes in path for PowerShell
+        const safePath = filePath.replace(/'/g, "''");
         execFile('powershell', [
+          '-NoProfile',
+          '-NonInteractive',
           '-Command',
-          `(New-Object Media.SoundPlayer '${filePath}').PlaySync()`
+          `$player = New-Object -ComObject WMPlayer.OCX; $player.URL = '${safePath}'; $player.controls.play(); Start-Sleep -Milliseconds ($player.currentMedia.duration * 1000 + 500); $player.close()`
         ]);
       } else if (process.platform === 'darwin') {
         execFile('afplay', [filePath]);

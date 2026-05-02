@@ -438,46 +438,35 @@
     <div class="page" id="page-credentials">
       <div class="page-title">Twitch Credentials</div>
 
-      <!-- Step 1: App Registration -->
+      <!-- Client ID / Secret — entered by developer, hidden from normal view -->
       <div class="card">
-        <div class="card-header">
+        <div class="card-header" style="cursor:pointer;" onclick="toggleDevSection()">
           <div>
-            <div class="card-title">Step 1 — Register Your App on Twitch</div>
-            <div class="card-subtitle">One-time setup on dev.twitch.tv — takes about 2 minutes</div>
+            <div class="card-title">App Credentials</div>
+            <div class="card-subtitle">Client ID and Secret — set up by your developer</div>
           </div>
-          <span class="pill pill-purple" id="step1Badge">REQUIRED</span>
+          <span id="devSectionChevron" style="color:var(--muted);font-size:18px;transition:transform 0.2s;">›</span>
         </div>
-        <div style="font-size:13px;color:var(--muted);line-height:1.9;margin-bottom:16px;">
-          <p>1. Go to <a href="#" style="color:var(--accent);text-decoration:none;" onclick="openExternal('https://dev.twitch.tv/console')">dev.twitch.tv/console</a> and log in with your <strong style="color:var(--text)">main Twitch account</strong></p>
-          <p>2. Click <strong style="color:var(--text)">Applications</strong> → <strong style="color:var(--text)">Register Your Application</strong></p>
-          <p>3. Fill in:
-            <span style="display:block;margin:6px 0 6px 16px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-family:var(--mono);font-size:12px;">
-              Name: <span style="color:var(--accent)">StreamCtl</span> (must be unique — add numbers if taken)<br>
-              OAuth Redirect URL: <span style="color:var(--green)">http://localhost:7878</span><br>
-              Category: <span style="color:var(--accent)">Chat Bot</span>
-            </span>
-          </p>
-          <p>4. Click <strong style="color:var(--text)">Create</strong>, then click <strong style="color:var(--text)">Manage</strong> on your new app</p>
-          <p>5. Copy the <strong style="color:var(--text)">Client ID</strong> and click <strong style="color:var(--text)">New Secret</strong> to generate a Client Secret</p>
-        </div>
-        <div class="field-row">
-          <div class="field">
-            <label>Client ID</label>
-            <input type="text" id="credClientId" placeholder="Paste from dev.twitch.tv">
+        <div id="devSection" style="display:none;margin-top:12px;">
+          <div class="field-row">
+            <div class="field">
+              <label>Client ID</label>
+              <input type="text" id="credClientId" placeholder="Provided by your developer">
+            </div>
+            <div class="field">
+              <label>Client Secret</label>
+              <input type="password" id="credClientSecret" placeholder="Provided by your developer">
+            </div>
           </div>
-          <div class="field">
-            <label>Client Secret</label>
-            <input type="password" id="credClientSecret" placeholder="Click New Secret on your app page">
-          </div>
+          <button class="btn btn-ghost btn-sm" onclick="saveCredentials()" style="margin-top:4px;">Save</button>
         </div>
-        <button class="btn btn-ghost btn-sm" onclick="saveCredentials()" style="margin-top:4px;">Save</button>
       </div>
 
-      <!-- Step 2: Connect Account -->
+      <!-- Step 1: Connect Account -->
       <div class="card">
         <div class="card-header">
           <div>
-            <div class="card-title">Step 2 — Connect Your Twitch Account</div>
+            <div class="card-title">Step 1 — Connect Your Twitch Account</div>
             <div class="card-subtitle">Authorizes StreamCtl to read follows, subs, and channel point redemptions</div>
           </div>
           <span class="pill pill-green" id="oauthBadge" style="display:none;">CONNECTED</span>
@@ -504,11 +493,11 @@
         </div>
       </div>
 
-      <!-- Step 3: Bot account -->
+      <!-- Step 2: Bot account -->
       <div class="card">
         <div class="card-header">
           <div>
-            <div class="card-title">Step 3 — Connect Your Bot Account</div>
+            <div class="card-title">Step 2 — Connect Your Bot Account</div>
             <div class="card-subtitle">A second Twitch account that sends messages in your chat</div>
           </div>
           <span class="pill pill-green" id="botOauthBadge" style="display:none;">CONNECTED</span>
@@ -797,11 +786,24 @@ ipcRenderer.on('tokens-refreshed', (_, { newAccessToken, newRefreshToken }) => {
   }
 });
 
+function toggleDevSection() {
+  const section = document.getElementById('devSection');
+  const chevron = document.getElementById('devSectionChevron');
+  const isOpen = section.style.display !== 'none';
+  section.style.display = isOpen ? 'none' : 'block';
+  chevron.style.transform = isOpen ? '' : 'rotate(90deg)';
+}
+
 // ── Credentials ────────────────────────────────────────────────────────────
 function loadCredentialFields() {
   const c = config.credentials || {};
   document.getElementById('credClientId').value = c.clientId || '';
   document.getElementById('credClientSecret').value = c.clientSecret || '';
+  // Auto-open the dev section if credentials haven't been entered yet
+  if (!c.clientId) {
+    document.getElementById('devSection').style.display = 'block';
+    document.getElementById('devSectionChevron').style.transform = 'rotate(90deg)';
+  }
   if (c.accessToken && c.displayName) {
     showOAuthConnected(c.displayName, c.broadcasterId);
   }
@@ -1030,6 +1032,10 @@ function renderTriggers() {
       <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px;">
           <div class="field" style="margin:0;">
+            <label>Trigger Keyword</label>
+            <input type="text" value="${t.keyword||''}" onchange="updateTriggerField(${idx},'keyword',this.value)" placeholder="e.g. congratulations">
+          </div>
+          <div class="field" style="margin:0;">
             <label>Response</label>
             <input type="text" value="${t.response||''}" onchange="updateTriggerField(${idx},'response',this.value)" placeholder="Bot says... use {user}">
           </div>
@@ -1041,17 +1047,19 @@ function renderTriggers() {
               <option value="startsWith" ${t.matchType==='startsWith'?'selected':''}>Starts with</option>
             </select>
           </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
           <div class="field" style="margin:0;">
             <label>Cooldown (seconds)</label>
             <input type="number" min="0" max="300" value="${t.cooldownSeconds??3}" onchange="updateTriggerField(${idx},'cooldownSeconds',+this.value)">
           </div>
-        </div>
-        <div style="display:grid;grid-template-columns:auto 1fr;gap:8px;align-items:center;margin-bottom:8px;">
-          <label style="font-size:11px;color:var(--muted);font-weight:600;letter-spacing:.08em;text-transform:uppercase;">Whole Word Only</label>
-          <label class="toggle" style="margin:0;">
-            <input type="checkbox" ${t.wholeWord?'checked':''} onchange="updateTriggerField(${idx},'wholeWord',this.checked)">
-            <span class="toggle-slider"></span>
-          </label>
+          <div style="display:flex;align-items:center;gap:8px;padding-top:20px;">
+            <label class="toggle" style="margin:0;">
+              <input type="checkbox" ${t.wholeWord?'checked':''} onchange="updateTriggerField(${idx},'wholeWord',this.checked)">
+              <span class="toggle-slider"></span>
+            </label>
+            <span style="font-size:12px;color:var(--muted);">Whole word only</span>
+          </div>
         </div>
         <div class="field" style="margin-bottom:8px;">
           <label>Sound File</label>
@@ -1127,7 +1135,10 @@ async function testTrigger(i) {
 async function updateTriggerField(i, field, value) {
   config.chatTriggers[i][field] = value;
   await saveConfig();
-  if (field === 'response') {
+  // Re-render the whole list if keyword changed so the header updates
+  if (field === 'keyword') {
+    renderTriggers();
+  } else if (field === 'response') {
     const sub = document.getElementById(`trigger-sub-${i}`);
     if (sub) sub.textContent = value || 'no response';
   }
