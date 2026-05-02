@@ -1,0 +1,30 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'        # triggers on any tag like v1.0.1, v1.2.0, etc.
+
+jobs:
+  build:
+    runs-on: windows-latest   # must be Windows to build a Windows installer
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build & publish installer
+        env:
+          # GitHub token is automatically provided by Actions
+          # electron-builder uses it to create the Release and upload files
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run release

@@ -1,0 +1,64 @@
+{
+  "name": "streamctl",
+  "version": "1.0.0",
+  "description": "Custom Twitch Bot",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win --publish never",
+    "build:publish": "electron-builder --win --publish always",
+    "release": "electron-builder --win --publish always"
+  },
+  "dependencies": {
+    "tmi.js": "^1.8.5",
+    "express": "^4.18.2",
+    "socket.io": "^4.6.1",
+    "node-fetch": "^2.6.9",
+    "play-sound": "^1.1.5",
+    "electron-store": "^8.1.0",
+    "electron-updater": "^6.1.7"
+  },
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.1"
+  },
+  "build": {
+    "appId": "com.streamctl.app",
+    "productName": "StreamCtl",
+    "copyright": "Copyright © 2025",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "bot.js",
+      "ui/**/*",
+      "overlay/**/*",
+      "assets/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "StreamCtl",
+      "uninstallDisplayName": "StreamCtl"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "joseph-malagon",
+      "repo": "streamctl"
+    }
+  }
+}
