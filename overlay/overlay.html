@@ -46,6 +46,22 @@
     white-space: nowrap;
   }
 
+  /* ── Meme popup ── */
+  .meme-popup {
+    max-width: 720px;
+    max-height: 540px;
+    border-radius: 16px;
+    box-shadow: 0 24px 80px rgba(0,0,0,0.85);
+    display: block;
+  }
+  @keyframes meme-show {
+    0%   { opacity: 0; transform: scale(0.82); }
+    18%  { opacity: 1; transform: scale(1.04); }
+    28%  { transform: scale(1); }
+    78%  { opacity: 1; transform: scale(1); }
+    100% { opacity: 0; transform: scale(0.92); }
+  }
+
   /* ── Position wrappers ── */
   .pos-wrap { position: absolute; pointer-events: none; z-index: 10; }
   .pos-center     { top: 50%; left: 50%; }
@@ -151,6 +167,25 @@
 
 <script>
 const socket = io('http://localhost:9000');
+
+// ── Meme popup ────────────────────────────────────────────────────────────────
+let currentMemeWrap = null;
+
+socket.on('show-meme', ({ url, duration = 5, position = 'center' }) => {
+  if (currentMemeWrap) { currentMemeWrap.remove(); currentMemeWrap = null; }
+
+  const { wrap, target } = makeWrapper(position);
+  const img = document.createElement('img');
+  img.className = 'meme-popup';
+  img.src = url;
+  img.style.animation = `meme-show ${duration}s ease forwards`;
+  target.appendChild(img);
+  currentMemeWrap = wrap;
+
+  setTimeout(() => {
+    if (currentMemeWrap === wrap) { wrap.remove(); currentMemeWrap = null; }
+  }, duration * 1000 + 300);
+});
 
 // ── Queue — show one at a time, 250ms gap between ─────────────────────────────
 const queue = [];

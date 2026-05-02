@@ -302,6 +302,7 @@ class TwitchBot {
           this.chatClient.say(channel, response).catch(() => {});
         }
         if (trigger.soundFile) this.playSound(trigger.soundFile);
+        if (trigger.imageFile) this.showMeme(trigger.imageFile, trigger.memeDuration, trigger.memePosition);
         if (trigger.animation) this.sendOverlay({ ...trigger.animation, username });
 
         this.onEvent('trigger-fired', { trigger: trigger.keyword, triggerId: trigger.id, username });
@@ -316,6 +317,7 @@ class TwitchBot {
       this.chatClient.say(`#${this.config.credentials?.channel}`, trigger.response.replace(/\{user\}/gi, username)).catch(() => {});
     }
     if (trigger.soundFile) this.playSound(trigger.soundFile);
+    if (trigger.imageFile) this.showMeme(trigger.imageFile, trigger.memeDuration, trigger.memePosition);
     if (trigger.animation) this.sendOverlay({ ...trigger.animation, username });
     this.onEvent('trigger-fired', { trigger: trigger.keyword, triggerId: trigger.id, username, test: true });
   }
@@ -390,6 +392,7 @@ class TwitchBot {
 
     if (match) {
       if (match.soundFile) this.playSound(match.soundFile);
+      if (match.imageFile) this.showMeme(match.imageFile, match.memeDuration, match.memePosition);
       if (match.animation) this.sendOverlay({ ...match.animation, username });
       if (match.chatMessage && this.chatClient) {
         const msg = match.chatMessage.replace(/\{user\}/gi, username);
@@ -460,8 +463,13 @@ class TwitchBot {
 
   playSound(filePath) {
     if (!filePath || !fs.existsSync(filePath)) return;
-    // Renderer handles playback (with user-selected output device) via this event
     this.onEvent('sound-played', { file: filePath });
+  }
+
+  showMeme(filePath, duration = 5, position = 'center') {
+    if (!filePath || !fs.existsSync(filePath)) return;
+    const url = `http://localhost:9000/media?path=${encodeURIComponent(filePath)}`;
+    if (this.overlayIO) this.overlayIO.emit('show-meme', { url, duration, position });
   }
 
   // ── Overlay Server ──────────────────────────────────────────────────────────
@@ -471,6 +479,14 @@ class TwitchBot {
     expressApp.use('/sounds', express.static(path.dirname(this.config.soundsDir || '.')));
     expressApp.get('/overlay', (req, res) => {
       res.sendFile(path.join(__dirname, 'overlay/overlay.html'));
+    });
+    // Serve local media files (images/GIFs) for meme popups
+    expressApp.get('/media', (req, res) => {
+      const filePath = decodeURIComponent(req.query.path || '');
+      if (!filePath || !fs.existsSync(filePath)) return res.status(404).send('Not found');
+      const ext = path.extname(filePath).toLowerCase();
+      if (!['.gif', '.png', '.jpg', '.jpeg', '.webp'].includes(ext)) return res.status(403).send('Forbidden');
+      res.sendFile(filePath);
     });
 
     this.overlayServer = http.createServer(expressApp);

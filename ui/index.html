@@ -598,6 +598,14 @@
               <button class="btn btn-ghost btn-sm" onclick="pickRedemptionSound()">Browse</button>
             </div>
           </div>
+          <div class="field">
+            <label>Meme Image (optional — GIF / PNG / JPG)</label>
+            <div class="file-picker">
+              <span class="file-picker-name" id="newRewardMemeName">No file selected</span>
+              <button class="btn btn-ghost btn-sm" onclick="pickRedemptionMeme()">Browse</button>
+              <button class="btn btn-danger btn-sm" id="newRewardMemeClear" style="display:none" onclick="clearRedemptionMeme()">✕</button>
+            </div>
+          </div>
           <div class="field-row" style="grid-template-columns:1fr 1fr 1fr;">
             <div class="field">
               <label>Overlay Text (optional)</label>
@@ -1129,6 +1137,29 @@ async function pickRedemptionSound() {
   if (f) { tempSoundFile.redemption = f; document.getElementById('newRewardSoundName').textContent = f.split(/[\\/]/).pop(); }
 }
 
+async function pickRedemptionMeme() {
+  const f = await ipcRenderer.invoke('pick-image-file');
+  if (f) {
+    tempSoundFile.redemptionMeme = f;
+    document.getElementById('newRewardMemeName').textContent = f.split(/[\\/]/).pop();
+    document.getElementById('newRewardMemeClear').style.display = '';
+  }
+}
+function clearRedemptionMeme() {
+  tempSoundFile.redemptionMeme = null;
+  document.getElementById('newRewardMemeName').textContent = 'No file selected';
+  document.getElementById('newRewardMemeClear').style.display = 'none';
+}
+
+async function pickTriggerMemeFor(i) {
+  const f = await ipcRenderer.invoke('pick-image-file');
+  if (f) {
+    config.chatTriggers[i].imageFile = f;
+    await saveConfig();
+    renderTriggers();
+  }
+}
+
 async function addRedemption() {
   const name = document.getElementById('newRewardName').value.trim();
   if (!name) return toast('Reward name required', 'error');
@@ -1138,6 +1169,8 @@ async function addRedemption() {
     rewardName: name,
     chatMessage: document.getElementById('newRewardChat').value.trim(),
     soundFile: tempSoundFile.redemption,
+    imageFile: tempSoundFile.redemptionMeme || null,
+    memeDuration: 5,
     animation: overlayText ? {
       text: overlayText,
       style: document.getElementById('newRewardAnimStyle').value,
@@ -1147,6 +1180,9 @@ async function addRedemption() {
     } : null
   });
   tempSoundFile.redemption = null;
+  tempSoundFile.redemptionMeme = null;
+  document.getElementById('newRewardMemeName').textContent = 'No file selected';
+  document.getElementById('newRewardMemeClear').style.display = 'none';
   document.getElementById('newRewardName').value = '';
   document.getElementById('newRewardChat').value = '';
   document.getElementById('newRewardOverlayText').value = '';
@@ -1247,6 +1283,25 @@ function renderTriggers() {
             ${t.soundFile ? `<button class="btn btn-danger btn-sm" onclick="updateTriggerField(${idx},'soundFile',null);renderTriggers()">✕</button>` : ''}
           </div>
         </div>
+        <div class="field" style="margin-bottom:8px;">
+          <label>Meme Image (GIF / PNG / JPG)</label>
+          <div class="file-picker">
+            <span class="file-picker-name">${t.imageFile ? t.imageFile.split(/[\\/]/).pop() : 'No file selected'}</span>
+            <button class="btn btn-ghost btn-sm" onclick="pickTriggerMemeFor(${idx})">Browse</button>
+            ${t.imageFile ? `<button class="btn btn-danger btn-sm" onclick="updateTriggerField(${idx},'imageFile',null);renderTriggers()">✕</button>` : ''}
+          </div>
+        </div>
+        ${t.imageFile ? `
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px;">
+          <div class="field" style="margin:0;">
+            <label>Meme Duration (seconds)</label>
+            <input type="number" min="1" max="30" value="${t.memeDuration||5}" onchange="updateTriggerField(${idx},'memeDuration',+this.value)">
+          </div>
+          <div class="field" style="margin:0;">
+            <label>Meme Position</label>
+            <select onchange="updateTriggerField(${idx},'memePosition',this.value)">${animPositionOptions(t.memePosition||'center')}</select>
+          </div>
+        </div>` : ''}
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
           <div class="field" style="margin:0;">
             <label>Overlay Text</label>
