@@ -316,6 +316,23 @@
   .pill-pink { background: rgba(252,92,156,0.2); color: var(--accent2); }
   .pill-green { background: rgba(61,220,132,0.2); color: var(--green); }
 
+  .cooldown-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 10px;
+    font-family: var(--mono);
+    color: var(--accent2);
+    background: rgba(252,92,156,0.12);
+    border: 1px solid rgba(252,92,156,0.25);
+    border-radius: 4px;
+    padding: 1px 5px;
+    min-width: 44px;
+    justify-content: center;
+    transition: opacity 0.3s;
+  }
+  .cooldown-badge:empty { display: none; }
+
   /* ── Add Form (inline) ── */
   .add-form {
     background: rgba(124,92,252,0.05);
@@ -444,6 +461,16 @@
     justify-content: center;
   }
   #meme-picker-modal.open { display: flex; }
+  #sound-picker-modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.72);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+  }
+  #sound-picker-modal.open { display: flex; }
   .meme-picker-box {
     background: var(--surface);
     border: 1px solid var(--border);
@@ -973,6 +1000,17 @@
   </div><!-- /content -->
 </div><!-- /layout -->
 
+<div id="sound-picker-modal" onclick="closeSoundPickerModal(event)">
+  <div class="meme-picker-box">
+    <div class="meme-picker-title">Pick a Sound</div>
+    <div class="meme-picker-list" id="soundPickerList"></div>
+    <div class="meme-picker-footer">
+      <button class="btn btn-ghost" onclick="soundPickerBrowseFile()">Browse File...</button>
+      <button class="btn btn-ghost" onclick="closeSoundPickerModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <div id="meme-picker-modal" onclick="closeMemePickerModal(event)">
   <div class="meme-picker-box">
     <div class="meme-picker-title">Pick a Meme</div>
@@ -1019,10 +1057,10 @@ const defaultConfig = {
   memeLibrary: [],
   giphyApiKey: '',
   alerts: {
-    follow: { enabled: true, chatMessage: 'Welcome {user}! Thanks for the follow! 👋', soundFile: null, animation: null },
-    sub:    { enabled: true, chatMessage: 'Thank you {user} for subscribing! 🎉', soundFile: null, animation: null },
-    raid:   { enabled: true, chatMessage: 'Welcome raiders from {user}! 🚀', soundFile: null, animation: null },
-    bits:   { enabled: true, chatMessage: 'Thanks for the {bits} bits, {user}! 💎', soundFile: null, animation: null, threshold: 1 }
+    follow: { enabled: true, chatMessage: 'Welcome {user}! Thanks for the follow! 👋', soundFile: null, animation: null, imageFile: null, memeDuration: 5, memePosition: 'center' },
+    sub:    { enabled: true, chatMessage: 'Thank you {user} for subscribing! 🎉', soundFile: null, animation: null, imageFile: null, memeDuration: 5, memePosition: 'center' },
+    raid:   { enabled: true, chatMessage: 'Welcome raiders from {user}! 🚀', soundFile: null, animation: null, imageFile: null, memeDuration: 5, memePosition: 'center' },
+    bits:   { enabled: true, chatMessage: 'Thanks for the {bits} bits, {user}! 💎', soundFile: null, animation: null, threshold: 1, imageFile: null, memeDuration: 5, memePosition: 'center' }
   }
 };
 
@@ -1070,6 +1108,7 @@ let selectedAudioDeviceId = '';
 let audioVolume = 1.0;
 let activeAudio = new Set();
 let audioPaused = false;
+const triggerCooldownMap = new Map();
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -1238,6 +1277,7 @@ ipcRenderer.on('bot-event', (_, { event, data }) => {
     document.getElementById('statTriggers').textContent = stats.triggers;
     addActivity('💬', `Trigger <strong>${escapeHtml(data.trigger)}</strong> fired for <strong>${escapeHtml(data.username)}</strong>${data.test ? ' <em>(test)</em>' : ''}`);
     if (data.hasSound) showSoundBar();
+    triggerCooldownMap.set(data.trigger, Date.now());
   }
   if (event === 'bits') {
     addActivity('💎', `<strong>${escapeHtml(data.username)}</strong> cheered <strong>${escapeHtml(data.bits)}</strong> bits!`);
@@ -1495,30 +1535,55 @@ async function removeLibrarySound(i) {
   renderSoundLibrary();
 }
 
-async function chooseSoundFromLibrary() {
+let _soundPickerResolve = null;
+
+function openSoundPickerModal() {
   const sounds = config.soundLibrary || [];
+  const list = document.getElementById('soundPickerList');
   if (!sounds.length) {
-    toast('Your sound library is empty. Import or record a sound first.', 'error');
-    return null;
+    list.innerHTML = '<div class="meme-picker-empty">No sounds saved yet — import, record, or search Freesound in the Sounds tab first, or use Browse File.</div>';
+  } else {
+    list.innerHTML = sounds.map((s, i) => `
+      <div class="meme-picker-item" onclick="selectSoundPicker(${i})">
+        <div class="meme-picker-item-info">
+          <div class="meme-picker-item-name">${escapeHtml(s.name || fileName(s.filePath))}</div>
+          <div class="meme-picker-item-sub">${escapeHtml(s.source || 'local')}${s.attribution ? ' · by ' + escapeHtml(s.attribution) : ''}</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); ipcRenderer.invoke('test-sound', '${jsString(s.filePath)}')">▶</button>
+        <button class="btn btn-primary btn-sm">Select</button>
+      </div>
+    `).join('');
   }
-  const options = sounds.map((s, i) => `${i + 1}. ${soundLabel(s)}`).join('\n');
-  const raw = window.prompt(`Choose a sound number:\n\n${options}`);
-  if (!raw) return null;
-  const idx = Number(raw) - 1;
-  if (!Number.isInteger(idx) || idx < 0 || idx >= sounds.length) {
-    toast('Invalid sound selection.', 'error');
-    return null;
-  }
-  return sounds[idx];
+  document.getElementById('sound-picker-modal').classList.add('open');
+  return new Promise(resolve => { _soundPickerResolve = resolve; });
 }
 
-async function chooseSoundFile() {
-  const fromLibrary = window.confirm('Choose from Sound Library?\n\nOK = Library\nCancel = Browse files');
-  if (fromLibrary) {
-    const sound = await chooseSoundFromLibrary();
-    return sound?.filePath || null;
-  }
-  return ipcRenderer.invoke('pick-sound-file');
+function selectSoundPicker(i) {
+  const resolve = _soundPickerResolve;
+  _soundPickerResolve = null;
+  document.getElementById('sound-picker-modal').classList.remove('open');
+  const sound = (config.soundLibrary || [])[i];
+  if (resolve) resolve(sound?.filePath || null);
+}
+
+async function soundPickerBrowseFile() {
+  const resolve = _soundPickerResolve;
+  _soundPickerResolve = null;
+  document.getElementById('sound-picker-modal').classList.remove('open');
+  const f = await ipcRenderer.invoke('pick-sound-file');
+  if (resolve) resolve(f || null);
+}
+
+function closeSoundPickerModal(event) {
+  if (event && event.target !== document.getElementById('sound-picker-modal')) return;
+  const resolve = _soundPickerResolve;
+  _soundPickerResolve = null;
+  document.getElementById('sound-picker-modal').classList.remove('open');
+  if (resolve) resolve(null);
+}
+
+function chooseSoundFile() {
+  return openSoundPickerModal();
 }
 
 async function toggleRecording() {
@@ -1822,7 +1887,7 @@ function closeGifPreview(event) {
   document.getElementById('gif-preview-img').src = '';
 }
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') { closeGifPreview(); closeMemePickerModal(); }
+  if (e.key === 'Escape') { closeGifPreview(); closeMemePickerModal(); closeSoundPickerModal(); }
 });
 
 async function importGiphyResult(i) {
@@ -1981,6 +2046,7 @@ function renderTriggers() {
             <span class="list-item-name">${escapeHtml(t.keyword)}</span>
             <span class="pill pill-pink" style="font-size:9px;">${escapeHtml(t.matchType||'contains')}</span>
             ${t.wholeWord ? '<span class="pill pill-purple" style="font-size:9px;">whole word</span>' : ''}
+            <span class="cooldown-badge" id="cd-${idx}" data-keyword="${escapeHtml(t.keyword)}" data-cooldown="${t.cooldownSeconds??3}"></span>
           </div>
           <div class="list-item-sub" id="trigger-sub-${idx}">${t.response ? escapeHtml(t.response) : '<em>no response</em>'}</div>
         </div>
@@ -2113,6 +2179,19 @@ function expandTrigger(i) {
   renderTriggers();
 }
 
+function updateCooldownBadges() {
+  const now = Date.now();
+  document.querySelectorAll('.cooldown-badge[data-keyword]').forEach(el => {
+    const keyword = el.dataset.keyword;
+    const cooldown = parseFloat(el.dataset.cooldown) || 0;
+    const lastFired = triggerCooldownMap.get(keyword);
+    if (!lastFired || cooldown <= 0) { el.textContent = ''; return; }
+    const remaining = cooldown - (now - lastFired) / 1000;
+    el.textContent = remaining > 0 ? `⏱ ${Math.ceil(remaining)}s` : '';
+  });
+}
+setInterval(updateCooldownBadges, 500);
+
 async function testTrigger(i) {
   const t = config.chatTriggers[i];
   await ipcRenderer.invoke('test-trigger', t);
@@ -2201,8 +2280,29 @@ function renderAlerts() {
           <span class="file-picker-name">${a.soundFile ? escapeHtml(a.soundFile.split(/[\\/]/).pop()) : 'No file selected'}</span>
           <button class="btn btn-ghost btn-sm" onclick="pickAlertSound('${t.key}')">Browse</button>
           ${a.soundFile ? `<button class="btn btn-ghost btn-sm" onclick="testAlertSound('${t.key}')">▶ Test</button>` : ''}
+          ${a.soundFile ? `<button class="btn btn-danger btn-sm" onclick="updateAlertField('${t.key}','soundFile',null);renderAlerts()">✕</button>` : ''}
         </div>
       </div>
+      <div class="field">
+        <label>Meme Image (GIF / PNG / JPG)</label>
+        <div class="file-picker">
+          <span class="file-picker-name">${a.imageFile ? escapeHtml(a.imageFile.split(/[\\/]/).pop()) : 'No file selected'}</span>
+          <button class="btn btn-ghost btn-sm" onclick="pickAlertMeme('${t.key}')">Browse</button>
+          ${a.imageFile ? `<button class="btn btn-ghost btn-sm" onclick="testMeme('${jsString(a.imageFile)}',${a.memeDuration||5},'${a.memePosition||'center'}')">▶ Test</button>` : ''}
+          ${a.imageFile ? `<button class="btn btn-danger btn-sm" onclick="updateAlertField('${t.key}','imageFile',null);renderAlerts()">✕</button>` : ''}
+        </div>
+      </div>
+      ${a.imageFile ? `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+        <div class="field" style="margin:0;">
+          <label>Meme Duration (seconds)</label>
+          <input type="number" min="1" max="30" value="${escapeHtml(a.memeDuration||5)}" onchange="updateAlertField('${t.key}','memeDuration',+this.value)">
+        </div>
+        <div class="field" style="margin:0;">
+          <label>Meme Position</label>
+          <select onchange="updateAlertField('${t.key}','memePosition',this.value)">${animPositionOptions(a.memePosition||'center')}</select>
+        </div>
+      </div>` : ''}
       ${t.key === 'bits' ? `
       <div class="field">
         <label>Minimum Bits to Trigger</label>
@@ -2245,6 +2345,10 @@ async function pickAlertSound(key) {
   const f = await chooseSoundFile();
   if (f) { config.alerts[key].soundFile = f; await saveConfig(); renderAlerts(); }
 }
+async function pickAlertMeme(key) {
+  const f = await chooseMemeFile();
+  if (f) { config.alerts[key].imageFile = f; await saveConfig(); renderAlerts(); }
+}
 function testAlertSound(key) {
   if (config.alerts[key].soundFile) ipcRenderer.invoke('test-sound', config.alerts[key].soundFile);
 }
@@ -2253,6 +2357,7 @@ function testAlert(key) {
   const a = config.alerts[key];
   if (a.soundFile) ipcRenderer.invoke('test-sound', a.soundFile);
   if (a.animation?.text) ipcRenderer.invoke('test-overlay', { ...a.animation, username: 'TestUser' });
+  if (a.imageFile) testMeme(a.imageFile, a.memeDuration || 5, a.memePosition || 'center');
   toast(`Testing ${key} alert...`);
 }
 

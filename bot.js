@@ -465,6 +465,7 @@ class TwitchBot {
 
     if (alerts.follow?.enabled) {
       if (alerts.follow.soundFile) this.playSound(alerts.follow.soundFile);
+      if (alerts.follow.imageFile) this.showMeme(alerts.follow.imageFile, alerts.follow.memeDuration, alerts.follow.memePosition);
       if (alerts.follow.animation) this.sendOverlay({ ...alerts.follow.animation, username });
       if (alerts.follow.chatMessage && this.chatClient) {
         const msg = alerts.follow.chatMessage.replace(/\{user\}/gi, username);
@@ -479,6 +480,7 @@ class TwitchBot {
 
     if (alerts.sub?.enabled) {
       if (alerts.sub.soundFile) this.playSound(alerts.sub.soundFile);
+      if (alerts.sub.imageFile) this.showMeme(alerts.sub.imageFile, alerts.sub.memeDuration, alerts.sub.memePosition);
       if (alerts.sub.animation) this.sendOverlay({ ...alerts.sub.animation, username });
       if (alerts.sub.chatMessage && this.chatClient) {
         const msg = alerts.sub.chatMessage.replace(/\{user\}/gi, username);
@@ -493,6 +495,7 @@ class TwitchBot {
 
     if (alerts.bits?.enabled && bits >= (alerts.bits.threshold ?? 1)) {
       if (alerts.bits.soundFile) this.playSound(alerts.bits.soundFile);
+      if (alerts.bits.imageFile) this.showMeme(alerts.bits.imageFile, alerts.bits.memeDuration, alerts.bits.memePosition);
       if (alerts.bits.animation) this.sendOverlay({ ...alerts.bits.animation, username });
       if (alerts.bits.chatMessage && this.chatClient) {
         const msg = alerts.bits.chatMessage
@@ -509,6 +512,7 @@ class TwitchBot {
 
     if (alerts.raid?.enabled) {
       if (alerts.raid.soundFile) this.playSound(alerts.raid.soundFile);
+      if (alerts.raid.imageFile) this.showMeme(alerts.raid.imageFile, alerts.raid.memeDuration, alerts.raid.memePosition);
       if (alerts.raid.animation) this.sendOverlay({ ...alerts.raid.animation, username });
       if (alerts.raid.chatMessage && this.chatClient) {
         const msg = alerts.raid.chatMessage.replace(/\{user\}/gi, username);
@@ -577,6 +581,7 @@ class TwitchBot {
 
     for (const redemption of this.config.redemptions || []) add(redemption.imageFile);
     for (const trigger of this.config.chatTriggers || []) add(trigger.imageFile);
+    for (const alert of Object.values(this.config.alerts || {})) add(alert.imageFile);
     for (const filePath of this._runtimeMediaFiles || []) add(filePath);
 
     return files;
