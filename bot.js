@@ -225,12 +225,21 @@ class TwitchBot {
       this._handleRaid(username, viewers);
     });
 
+    this.chatClient.on('cheer', (channel, userstate) => {
+      const bits = parseInt(userstate.bits || '0', 10);
+      const username = userstate['display-name'] || userstate.username;
+      if (bits > 0) this._handleBits(username, bits);
+    });
+
     this.chatClient.on('disconnected', (reason) => {
+      this._chatConnected = false;
       this.onEvent('status', { connected: false, message: `Disconnected: ${reason}` });
     });
 
     this.chatClient.on('connected', () => {
-      this.onEvent('status', { connected: true, message: 'Chat connected!' });
+      const reconnect = this._chatConnected;
+      this._chatConnected = true;
+      this.onEvent('status', { connected: true, message: reconnect ? 'Reconnected to chat.' : 'Chat connected!' });
     });
 
     await this.chatClient.connect();
@@ -412,6 +421,22 @@ class TwitchBot {
       if (alerts.sub.animation) this.sendOverlay({ ...alerts.sub.animation, username });
       if (alerts.sub.chatMessage && this.chatClient) {
         const msg = alerts.sub.chatMessage.replace(/\{user\}/gi, username);
+        this.chatClient.say(`#${this.config.credentials.channel}`, msg).catch(() => {});
+      }
+    }
+  }
+
+  _handleBits(username, bits) {
+    this.onEvent('bits', { username, bits });
+    const alerts = this.config.alerts || {};
+
+    if (alerts.bits?.enabled && bits >= (alerts.bits.threshold ?? 1)) {
+      if (alerts.bits.soundFile) this.playSound(alerts.bits.soundFile);
+      if (alerts.bits.animation) this.sendOverlay({ ...alerts.bits.animation, username });
+      if (alerts.bits.chatMessage && this.chatClient) {
+        const msg = alerts.bits.chatMessage
+          .replace(/\{user\}/gi, username)
+          .replace(/\{bits\}/gi, bits);
         this.chatClient.say(`#${this.config.credentials.channel}`, msg).catch(() => {});
       }
     }

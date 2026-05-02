@@ -1,5 +1,6 @@
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const http = require('http');
 const url = require('url');
 const Store = require('electron-store');
@@ -175,6 +176,37 @@ ipcMain.handle('test-sound', (_, filePath) => {
 
 ipcMain.handle('test-trigger', (_, trigger) => {
   if (bot) bot.fireTrigger(trigger);
+});
+
+ipcMain.handle('export-config', async () => {
+  const result = await dialog.showSaveDialog(mainWindow, {
+    defaultPath: 'streamctl-config.json',
+    filters: [{ name: 'JSON', extensions: ['json'] }]
+  });
+  if (result.canceled) return false;
+  fs.writeFileSync(result.filePath, JSON.stringify(store.store, null, 2));
+  return true;
+});
+
+ipcMain.handle('import-config', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openFile'],
+    filters: [{ name: 'JSON', extensions: ['json'] }]
+  });
+  if (result.canceled) return null;
+  try {
+    const imported = JSON.parse(fs.readFileSync(result.filePaths[0], 'utf8'));
+    store.set(imported);
+    return imported;
+  } catch {
+    return { error: 'Invalid config file.' };
+  }
+});
+
+ipcMain.handle('get-history', () => store.get('activityHistory') || []);
+
+ipcMain.handle('save-history', (_, items) => {
+  store.set('activityHistory', items.slice(-200));
 });
 
 ipcMain.handle('check-for-updates', () => {

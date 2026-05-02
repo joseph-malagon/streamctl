@@ -689,6 +689,24 @@
           <div class="card-title">Test Animations</div>
           <div class="card-subtitle">Fire a test to see how it looks in OBS</div>
         </div>
+        <div style="display:grid;grid-template-columns:1fr auto auto auto;gap:10px;align-items:end;margin-bottom:12px;">
+          <div class="field" style="margin:0;">
+            <label>Test Text</label>
+            <input type="text" id="testAnimText" value="✨ Test Animation!" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:7px;padding:9px 12px;font-family:var(--sans);font-size:13px;color:var(--text);outline:none;">
+          </div>
+          <div class="field" style="margin:0;">
+            <label>Color</label>
+            <input type="color" id="testAnimColor" value="#7c5cfc" style="height:38px;padding:4px 8px;cursor:pointer;background:var(--bg);border:1px solid var(--border);border-radius:7px;width:60px;">
+          </div>
+          <div class="field" style="margin:0;">
+            <label>Duration (s)</label>
+            <input type="number" id="testAnimDuration" value="4" min="1" max="15" style="width:70px;background:var(--bg);border:1px solid var(--border);border-radius:7px;padding:9px 12px;font-family:var(--sans);font-size:13px;color:var(--text);outline:none;">
+          </div>
+          <div class="field" style="margin:0;">
+            <label>Position</label>
+            <select id="testAnimPosition" style="background:var(--bg);border:1px solid var(--border);border-radius:7px;padding:9px 12px;font-family:var(--sans);font-size:13px;color:var(--text);outline:none;"></select>
+          </div>
+        </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <button class="btn btn-ghost btn-sm" onclick="testAnim('slideIn')">▶ Slide In</button>
           <button class="btn btn-ghost btn-sm" onclick="testAnim('bounce')">▶ Bounce</button>
@@ -724,6 +742,18 @@
         <div style="font-size:12px;color:var(--muted);margin-top:4px;">
           If you don't see your device, plug it in and click Refresh.
         </div>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">Backup & Restore</div>
+            <div class="card-subtitle">Save or load all your triggers, redemptions, and alerts</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-ghost" onclick="exportConfig()">⬇ Export Config</button>
+          <button class="btn btn-ghost" onclick="importConfig()">⬆ Import Config</button>
+        </div>
         <div class="field" style="margin-top:16px;margin-bottom:0;">
           <label>Alert Volume — <span id="volumeLabel">100</span>%</label>
           <div style="display:flex;align-items:center;gap:12px;margin-top:6px;">
@@ -754,7 +784,8 @@ let config = {
   alerts: {
     follow: { enabled: true, chatMessage: 'Welcome {user}! Thanks for the follow! 👋', soundFile: null, animation: null },
     sub:    { enabled: true, chatMessage: 'Thank you {user} for subscribing! 🎉', soundFile: null, animation: null },
-    raid:   { enabled: true, chatMessage: 'Welcome raiders from {user}! 🚀', soundFile: null, animation: null }
+    raid:   { enabled: true, chatMessage: 'Welcome raiders from {user}! 🚀', soundFile: null, animation: null },
+    bits:   { enabled: true, chatMessage: 'Thanks for the {bits} bits, {user}! 💎', soundFile: null, animation: null, threshold: 1 }
   }
 };
 
@@ -782,6 +813,19 @@ let audioVolume = 1.0;
   renderTriggers();
   renderAlerts();
   refreshAudioDevices();
+  // Restore activity history from last session
+  const history = await ipcRenderer.invoke('get-history');
+  const feed = document.getElementById('activityFeed');
+  feed.innerHTML = '';
+  history.forEach(({ icon, html, time }) => {
+    const el = document.createElement('div');
+    el.className = 'activity-item';
+    el.innerHTML = `<span class="activity-icon">${icon}</span><span class="activity-text">${html}</span><span class="activity-time">${time}</span>`;
+    feed.appendChild(el);
+  });
+  if (!history.length) {
+    feed.innerHTML = '<div class="activity-item"><span class="activity-icon">⬡</span><span class="activity-text">Waiting for bot to connect...</span></div>';
+  }
 })();
 
 // ── Navigation ─────────────────────────────────────────────────────────────
@@ -792,6 +836,10 @@ document.querySelectorAll('.nav-item').forEach(item => {
     item.classList.add('active');
     document.getElementById('page-' + item.dataset.page).classList.add('active');
     if (item.dataset.page === 'settings') refreshAudioDevices();
+    if (item.dataset.page === 'overlay') {
+      const el = document.getElementById('testAnimPosition');
+      if (el && !el.children.length) el.innerHTML = animPositionOptions();
+    }
   });
 });
 
@@ -861,6 +909,10 @@ ipcRenderer.on('bot-event', (_, { event, data }) => {
     document.getElementById('statTriggers').textContent = stats.triggers;
     addActivity('💬', `Trigger <strong>${data.trigger}</strong> fired for <strong>${data.username}</strong>${data.test ? ' <em>(test)</em>' : ''}`);
     if (data.hasSound) showSoundBar();
+  }
+  if (event === 'bits') {
+    addActivity('💎', `<strong>${data.username}</strong> cheered <strong>${data.bits}</strong> bits!`);
+    showSoundBar();
   }
   if (event === 'sub') {
     const label = data.gifter ? `<strong>${data.username}</strong> was gifted a sub by <strong>${data.gifter}</strong>` :
@@ -1145,6 +1197,8 @@ function renderTriggers() {
           <div class="list-item-sub" id="trigger-sub-${idx}">${t.response || '<em>no response</em>'}</div>
         </div>
         <div style="display:flex;gap:6px;flex-shrink:0;">
+          <button class="btn btn-ghost btn-sm" onclick="moveTrigger(${idx},-1)" ${idx===0?'disabled':''} title="Move up">↑</button>
+          <button class="btn btn-ghost btn-sm" onclick="moveTrigger(${idx},1)" ${idx===config.chatTriggers.length-1?'disabled':''} title="Move down">↓</button>
           <button class="btn btn-ghost btn-sm" onclick="testTrigger(${idx})" title="Test this trigger now">▶ Test</button>
           <button class="btn btn-ghost btn-sm" onclick="expandTrigger(${idx})" title="Edit sound/animation">⚙</button>
           <button class="btn btn-danger btn-sm" onclick="removeTrigger(${idx})">✕</button>
@@ -1291,15 +1345,23 @@ async function pickTriggerSoundFor(i) {
   }
 }
 
+async function moveTrigger(i, dir) {
+  const j = i + dir;
+  if (j < 0 || j >= config.chatTriggers.length) return;
+  [config.chatTriggers[i], config.chatTriggers[j]] = [config.chatTriggers[j], config.chatTriggers[i]];
+  await saveConfig();
+  renderTriggers();
+}
 async function toggleTrigger(i, val) { config.chatTriggers[i].enabled = val; await saveConfig(); }
 async function removeTrigger(i) { config.chatTriggers.splice(i,1); await saveConfig(); renderTriggers(); }
 
 // ── Alerts ─────────────────────────────────────────────────────────────────
 function renderAlerts() {
   const types = [
-    { key: 'follow', label: 'New Follow', icon: '❤️', pill: 'pill-green' },
-    { key: 'sub',    label: 'Subscription', icon: '⭐', pill: 'pill-purple' },
-    { key: 'raid',   label: 'Raid', icon: '🚀', pill: 'pill-pink' }
+    { key: 'follow', label: 'New Follow',      icon: '❤️', pill: 'pill-green' },
+    { key: 'sub',    label: 'Subscription',    icon: '⭐', pill: 'pill-purple' },
+    { key: 'raid',   label: 'Raid',            icon: '🚀', pill: 'pill-pink' },
+    { key: 'bits',   label: 'Bits / Cheer',    icon: '💎', pill: 'pill-purple' }
   ];
   document.getElementById('alertCards').innerHTML = types.map(t => {
     const a = config.alerts[t.key];
@@ -1333,6 +1395,11 @@ function renderAlerts() {
           ${a.soundFile ? `<button class="btn btn-ghost btn-sm" onclick="testAlertSound('${t.key}')">▶ Test</button>` : ''}
         </div>
       </div>
+      ${t.key === 'bits' ? `
+      <div class="field">
+        <label>Minimum Bits to Trigger</label>
+        <input type="number" min="1" value="${a.threshold ?? 1}" onchange="updateAlertField('${t.key}','threshold',+this.value)" style="width:140px;">
+      </div>` : ''}
       <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
         <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px;">Animation</div>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:8px;">
@@ -1388,7 +1455,29 @@ function copyOverlayUrl() {
 }
 
 function testAnim(style) {
-  ipcRenderer.invoke('test-overlay', { text: '✨ Test Animation!', style, username: 'StreamCtl' });
+  const text     = document.getElementById('testAnimText')?.value || '✨ Test Animation!';
+  const color    = document.getElementById('testAnimColor')?.value || '#7c5cfc';
+  const duration = +(document.getElementById('testAnimDuration')?.value || 4);
+  const position = document.getElementById('testAnimPosition')?.value || 'topRight';
+  ipcRenderer.invoke('test-overlay', { text, style, username: 'StreamCtl', color, duration, position });
+}
+
+// ── Import / Export ────────────────────────────────────────────────────────
+async function exportConfig() {
+  const ok = await ipcRenderer.invoke('export-config');
+  if (ok) toast('Config exported!', 'success');
+}
+
+async function importConfig() {
+  const imported = await ipcRenderer.invoke('import-config');
+  if (!imported) return;
+  if (imported.error) return toast(imported.error, 'error');
+  config = { ...config, ...imported };
+  loadCredentialFields();
+  renderRedemptions();
+  renderTriggers();
+  renderAlerts();
+  toast('Config imported! Reconnect the bot to apply.', 'success');
 }
 
 // ── Animation helpers ──────────────────────────────────────────────────────
@@ -1415,6 +1504,11 @@ function animPositionOptions(current = 'topRight') {
     ['bottomRight', 'Bottom Right'],
     ['bottomLeft',  'Bottom Left'],
   ].map(([v, l]) => `<option value="${v}" ${current===v?'selected':''}>${l}</option>`).join('');
+}
+
+async function updateAlertField(key, field, value) {
+  config.alerts[key][field] = value;
+  await saveConfig();
 }
 
 async function updateAlertAnim(key, field, value) {
@@ -1494,6 +1588,7 @@ function setStatus(cls, text) {
   document.getElementById('statusText').textContent = text;
 }
 
+let saveHistoryTimer;
 function addActivity(icon, html) {
   const feed = document.getElementById('activityFeed');
   const time = new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'});
@@ -1502,10 +1597,21 @@ function addActivity(icon, html) {
   el.innerHTML = `<span class="activity-icon">${icon}</span><span class="activity-text">${html}</span><span class="activity-time">${time}</span>`;
   feed.insertBefore(el, feed.firstChild);
   while (feed.children.length > 50) feed.removeChild(feed.lastChild);
+  // Debounced persist — save 2s after the last event
+  clearTimeout(saveHistoryTimer);
+  saveHistoryTimer = setTimeout(() => {
+    const items = [...feed.children].reverse().map(el => ({
+      icon: el.querySelector('.activity-icon')?.textContent || '',
+      html: el.querySelector('.activity-text')?.innerHTML || '',
+      time: el.querySelector('.activity-time')?.textContent || ''
+    }));
+    ipcRenderer.invoke('save-history', items);
+  }, 2000);
 }
 
 function clearActivity() {
   document.getElementById('activityFeed').innerHTML = '';
+  ipcRenderer.invoke('save-history', []);
 }
 
 let toastTimeout;
