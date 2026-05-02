@@ -7,159 +7,93 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.6.1/socket.io.min.js"></script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-
   body {
-    width: 1920px;
-    height: 1080px;
-    overflow: hidden;
-    background: transparent;
+    width: 1920px; height: 1080px;
+    overflow: hidden; background: transparent;
     font-family: 'Segoe UI', system-ui, sans-serif;
   }
 
-  /* ── Alert Container ── */
-  #alert-container {
-    position: absolute;
-    top: 40px;
-    right: 40px;
-    width: 420px;
-    pointer-events: none;
-  }
-
-  .alert-box {
-    background: linear-gradient(135deg, rgba(13,13,20,0.95), rgba(19,19,31,0.95));
-    border: 1px solid rgba(124,92,252,0.4);
-    border-radius: 16px;
-    padding: 18px 22px;
-    backdrop-filter: blur(20px);
-    box-shadow: 0 8px 40px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.05);
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    opacity: 0;
-    transform: translateX(100px);
-  }
-
-  .alert-icon {
-    font-size: 32px;
-    flex-shrink: 0;
-    filter: drop-shadow(0 0 8px rgba(255,255,255,0.3));
-  }
-
-  .alert-content { flex: 1; min-width: 0; }
-
-  .alert-label {
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.15em;
-    text-transform: uppercase;
-    color: rgba(255,255,255,0.4);
-    margin-bottom: 3px;
-  }
-
-  .alert-name {
-    font-size: 22px;
-    font-weight: 700;
-    color: white;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    text-shadow: 0 0 20px rgba(124,92,252,0.8);
-  }
-
-  .alert-sub {
-    font-size: 12px;
-    color: rgba(255,255,255,0.5);
-    margin-top: 2px;
-  }
-
-  /* ── Accent bar ── */
-  .alert-bar {
-    position: absolute;
-    top: 0; left: 0;
-    width: 3px;
-    height: 100%;
-    border-radius: 16px 0 0 16px;
-    background: linear-gradient(180deg, #7c5cfc, #fc5c9c);
-  }
-
-  /* ── Text popup (center screen) ── */
-  #text-container {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    pointer-events: none;
-    text-align: center;
-  }
-
-  .text-popup {
-    display: inline-block;
-    font-size: 56px;
-    font-weight: 900;
-    color: white;
-    text-shadow:
-      0 0 20px rgba(124,92,252,0.9),
-      0 0 60px rgba(124,92,252,0.5),
-      2px 2px 0 rgba(0,0,0,0.8);
-    padding: 10px 30px;
-    opacity: 0;
-    letter-spacing: -0.02em;
-  }
-
-  /* ── Particle canvas ── */
   #particle-canvas {
-    position: absolute;
-    top: 0; left: 0;
-    width: 1920px;
-    height: 1080px;
-    pointer-events: none;
+    position: absolute; top: 0; left: 0;
+    width: 1920px; height: 1080px;
+    pointer-events: none; z-index: 0;
   }
 
-  /* ── Animations ── */
+  /* ── Alert card (slideIn) ── */
+  .alert-card {
+    position: absolute; width: 420px;
+    background: linear-gradient(135deg, rgba(13,13,20,0.95), rgba(19,19,31,0.95));
+    border-radius: 16px; padding: 18px 22px;
+    backdrop-filter: blur(20px);
+    display: flex; align-items: center; gap: 14px;
+    opacity: 0; pointer-events: none; z-index: 10;
+  }
+  .alert-bar {
+    position: absolute; top: 0; left: 0;
+    width: 3px; height: 100%;
+    border-radius: 16px 0 0 16px;
+  }
+  .alert-icon { font-size: 32px; flex-shrink: 0; filter: drop-shadow(0 0 8px rgba(255,255,255,0.3)); }
+  .alert-content { flex: 1; min-width: 0; }
+  .alert-name { font-size: 22px; font-weight: 700; color: white; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .alert-sub { font-size: 12px; color: rgba(255,255,255,0.5); margin-top: 2px; }
 
-  /* slideIn */
-  @keyframes slideIn {
-    0%   { opacity: 0; transform: translateX(100px); }
+  /* ── Text popup ── */
+  .text-popup {
+    font-size: 56px; font-weight: 900; color: white;
+    padding: 10px 30px; letter-spacing: -0.02em;
+    pointer-events: none; display: inline-block;
+    white-space: nowrap;
+  }
+
+  /* ── Position wrappers ── */
+  .pos-wrap { position: absolute; pointer-events: none; z-index: 10; }
+  .pos-center     { top: 50%; left: 50%; }
+  .pos-center > * { transform: translate(-50%, -50%); display: block; }
+  .pos-topRight    { top: 40px; right: 40px; }
+  .pos-topLeft     { top: 40px; left: 40px; }
+  .pos-bottomRight { bottom: 40px; right: 40px; }
+  .pos-bottomLeft  { bottom: 40px; left: 40px; }
+
+  /* ── Card animations ── */
+  @keyframes card-right {
+    0%   { opacity: 0; transform: translateX(120px); }
     15%  { opacity: 1; transform: translateX(0); }
     80%  { opacity: 1; transform: translateX(0); }
-    100% { opacity: 0; transform: translateX(60px); }
+    100% { opacity: 0; transform: translateX(80px); }
+  }
+  @keyframes card-left {
+    0%   { opacity: 0; transform: translateX(-120px); }
+    15%  { opacity: 1; transform: translateX(0); }
+    80%  { opacity: 1; transform: translateX(0); }
+    100% { opacity: 0; transform: translateX(-80px); }
   }
 
-  /* bounce */
-  @keyframes bounceIn {
-    0%   { opacity: 0; transform: scale(0.3) translateY(-40px); }
-    40%  { opacity: 1; transform: scale(1.15) translateY(0); }
+  /* ── Text popup animations (scale/opacity only — positioning handled by wrapper) ── */
+  @keyframes anim-pop {
+    0%   { opacity: 0; transform: scale(0.5); }
+    20%  { opacity: 1; transform: scale(1.1); }
+    35%  { transform: scale(0.95); }
+    45%  { transform: scale(1.02); }
+    55%  { transform: scale(1); }
+    80%  { opacity: 1; }
+    100% { opacity: 0; transform: scale(0.9); }
+  }
+  @keyframes anim-bounce {
+    0%   { opacity: 0; transform: scale(0.3) translateY(-30px); }
+    40%  { opacity: 1; transform: scale(1.15); }
     60%  { transform: scale(0.95); }
     75%  { transform: scale(1.05); }
     85%  { transform: scale(0.97); }
     95%  { transform: scale(1.02); }
     100% { opacity: 1; transform: scale(1); }
   }
-  @keyframes bounceOut {
+  @keyframes anim-bounce-out {
     0%   { opacity: 1; transform: scale(1); }
     30%  { transform: scale(1.1); }
-    100% { opacity: 0; transform: scale(0.5) translateY(40px); }
+    100% { opacity: 0; transform: scale(0.5) translateY(30px); }
   }
-
-  /* textSlide */
-  @keyframes textSlide {
-    0%   { opacity: 0; transform: translateY(-60px) scale(0.8); }
-    20%  { opacity: 1; transform: translateY(0) scale(1); }
-    75%  { opacity: 1; transform: translateY(0) scale(1); }
-    100% { opacity: 0; transform: translateY(40px) scale(0.9); }
-  }
-
-  /* rainbow */
-  @keyframes rainbowText {
-    0%   { filter: hue-rotate(0deg);   opacity: 0; transform: scale(0.8); }
-    10%  { opacity: 1;                  transform: scale(1.1); }
-    50%  { filter: hue-rotate(180deg); transform: scale(1); }
-    90%  { opacity: 1;                  filter: hue-rotate(320deg); }
-    100% { opacity: 0;                  filter: hue-rotate(360deg); transform: scale(0.9); }
-  }
-
-  /* explosion */
-  @keyframes explosionPop {
+  @keyframes anim-explosion {
     0%   { opacity: 0; transform: scale(0) rotate(-10deg); }
     25%  { opacity: 1; transform: scale(1.3) rotate(3deg); }
     40%  { transform: scale(0.95) rotate(-1deg); }
@@ -167,135 +101,275 @@
     70%  { transform: scale(1) rotate(0); opacity: 1; }
     100% { opacity: 0; transform: scale(1.4) rotate(5deg); }
   }
+  @keyframes anim-rainbow {
+    0%   { opacity: 0; transform: scale(0.8); filter: hue-rotate(0deg); }
+    10%  { opacity: 1; transform: scale(1.1); }
+    50%  { filter: hue-rotate(180deg); transform: scale(1); }
+    90%  { opacity: 1; filter: hue-rotate(320deg); }
+    100% { opacity: 0; filter: hue-rotate(360deg); transform: scale(0.9); }
+  }
+  @keyframes anim-shake {
+    0%   { opacity: 0; transform: scale(0.8); }
+    8%   { opacity: 1; transform: scale(1); }
+    15%  { transform: translateX(-8px) rotate(-2deg); }
+    22%  { transform: translateX(8px) rotate(2deg); }
+    29%  { transform: translateX(-6px) rotate(-1deg); }
+    36%  { transform: translateX(6px) rotate(1deg); }
+    43%  { transform: translateX(-3px); }
+    50%  { transform: translateX(0) scale(1); }
+    80%  { opacity: 1; }
+    100% { opacity: 0; transform: scale(0.9); }
+  }
+  @keyframes anim-pulse {
+    0%   { opacity: 0; transform: scale(0.8); }
+    15%  { opacity: 1; transform: scale(1); }
+    28%  { transform: scale(1.08); filter: brightness(2.2); }
+    40%  { transform: scale(1); filter: brightness(1); }
+    55%  { transform: scale(1.05); filter: brightness(1.7); }
+    68%  { transform: scale(1); filter: brightness(1); }
+    82%  { opacity: 1; }
+    100% { opacity: 0; transform: scale(0.9); }
+  }
+  @keyframes anim-spin {
+    0%   { opacity: 0; transform: rotate(-180deg) scale(0); }
+    30%  { opacity: 1; transform: rotate(10deg) scale(1.1); }
+    45%  { transform: rotate(-5deg) scale(0.95); }
+    55%  { transform: rotate(2deg) scale(1); }
+    80%  { opacity: 1; transform: rotate(0deg) scale(1); }
+    100% { opacity: 0; transform: rotate(90deg) scale(0.5); }
+  }
+  @keyframes anim-glitch {
+    0%   { opacity: 0; transform: translateY(-20px) scale(0.95); }
+    12%  { opacity: 1; transform: translateY(0) scale(1); }
+    78%  { opacity: 1; }
+    100% { opacity: 0; transform: translateY(15px) scale(0.95); }
+  }
 </style>
 </head>
 <body>
-
 <canvas id="particle-canvas"></canvas>
-<div id="alert-container"></div>
-<div id="text-container"></div>
 
 <script>
 const socket = io('http://localhost:9000');
 
-socket.on('animate', (data) => {
-  const { text, style, username, type } = data;
+// ── Queue — show one at a time, 250ms gap between ─────────────────────────────
+const queue = [];
+let showing = false;
 
-  if (style === 'slideIn') showAlert(text, username, style);
-  else if (style === 'bounce') showTextPopup(text, 'bounce');
-  else if (style === 'explosion') { showTextPopup(text, 'explosion'); spawnParticles('explosion'); }
-  else if (style === 'rainbow') showTextPopup(text, 'rainbow');
-  else showAlert(text, username, 'slideIn'); // default
+socket.on('animate', (data) => {
+  queue.push(data);
+  if (!showing) processQueue();
 });
 
-// ── Alert (top right) ──────────────────────────────────────────────────────
-function showAlert(text, username, style) {
-  const container = document.getElementById('alert-container');
-  const box = document.createElement('div');
-  box.className = 'alert-box';
-  box.style.position = 'relative';
+function processQueue() {
+  if (!queue.length) { showing = false; return; }
+  showing = true;
+  const data = queue.shift();
+  const durationMs = (data.duration ?? 4) * 1000;
+  dispatch(data, durationMs, () => setTimeout(processQueue, 250));
+}
 
-  const label = text.includes('{user}') || !text ? 'New Event' : '';
-  const displayText = text.replace('{user}', username || '');
-  const displayName = username || displayText;
+// ── Dispatcher ────────────────────────────────────────────────────────────────
+function dispatch(data, durationMs, done) {
+  const { text, style = 'slideIn', username, color = '#7c5cfc', position = 'topRight' } = data;
+  const displayText = (text || '').replace(/\{user\}/gi, username || '');
 
-  box.innerHTML = `
-    <div class="alert-bar"></div>
+  if (style === 'slideIn') {
+    showCard(displayText, username, color, durationMs, position, done);
+  } else {
+    if (style === 'explosion') spawnBurst(color);
+    if (style === 'confetti')  spawnConfetti();
+    showText(displayText, style, color, durationMs, position, done);
+  }
+}
+
+// ── Alert card ────────────────────────────────────────────────────────────────
+function showCard(text, username, color, durationMs, position, done) {
+  const card = document.createElement('div');
+  card.className = 'alert-card';
+  card.style.border = `1px solid ${color}55`;
+  card.style.boxShadow = `0 8px 40px rgba(0,0,0,0.6), 0 0 30px ${color}22, inset 0 1px 0 rgba(255,255,255,0.05)`;
+
+  const fromRight = !position || position === 'topRight' || position === 'bottomRight';
+  const atBottom  = position === 'bottomRight' || position === 'bottomLeft';
+  card.style[atBottom ? 'bottom' : 'top'] = '40px';
+  card.style[fromRight ? 'right' : 'left'] = '40px';
+
+  const displayName = username || text;
+  const sub = text && text !== displayName ? text : '';
+
+  card.innerHTML = `
+    <div class="alert-bar" style="background:linear-gradient(180deg,${color},${color}88)"></div>
     <div class="alert-icon">✨</div>
     <div class="alert-content">
-      ${label ? `<div class="alert-label">${label}</div>` : ''}
-      <div class="alert-name">${displayName}</div>
-      ${displayText && displayText !== displayName ? `<div class="alert-sub">${displayText}</div>` : ''}
-    </div>
-  `;
+      <div class="alert-name" style="text-shadow:0 0 20px ${color}cc">${displayName}</div>
+      ${sub ? `<div class="alert-sub">${sub}</div>` : ''}
+    </div>`;
 
-  container.appendChild(box);
-  box.style.animation = 'slideIn 4s cubic-bezier(0.22, 1, 0.36, 1) forwards';
+  const sec = durationMs / 1000;
+  card.style.animation = `${fromRight ? 'card-right' : 'card-left'} ${sec}s cubic-bezier(0.22,1,0.36,1) forwards`;
 
-  setTimeout(() => { if (box.parentNode) box.remove(); }, 4200);
+  document.body.appendChild(card);
+  setTimeout(() => { card.remove(); done(); }, durationMs + 200);
 }
 
-// ── Text Popup (center) ────────────────────────────────────────────────────
-function showTextPopup(text, style) {
-  const container = document.getElementById('text-container');
+// ── Text popup ────────────────────────────────────────────────────────────────
+function posClass(position) {
+  return { topRight: 'pos-topRight', topLeft: 'pos-topLeft', bottomRight: 'pos-bottomRight', bottomLeft: 'pos-bottomLeft' }[position] || 'pos-center';
+}
+
+function makeWrapper(position) {
+  const wrap = document.createElement('div');
+  wrap.className = 'pos-wrap ' + posClass(position);
+  document.body.appendChild(wrap);
+
+  // For center: add a centering layer so animation keyframes don't fight positioning transforms
+  if (!position || position === 'center') {
+    const cent = document.createElement('div');
+    wrap.appendChild(cent);
+    return { wrap, target: cent };
+  }
+  return { wrap, target: wrap };
+}
+
+function getTextAnim(style, sec) {
+  const hb = Math.max(sec - 0.6, sec * 0.7);
+  return {
+    bounce:    `anim-bounce 0.6s cubic-bezier(0.34,1.56,0.64,1) forwards, anim-bounce-out 0.5s ease-in ${hb}s forwards`,
+    explosion: `anim-explosion ${sec}s cubic-bezier(0.34,1.56,0.64,1) forwards`,
+    rainbow:   `anim-rainbow ${sec}s ease-in-out forwards`,
+    shake:     `anim-shake ${sec}s ease-in-out forwards`,
+    pulse:     `anim-pulse ${sec}s ease-in-out forwards`,
+    spin:      `anim-spin ${sec}s cubic-bezier(0.34,1.56,0.64,1) forwards`,
+    glitch:    `anim-glitch ${sec}s ease-in-out forwards`,
+    confetti:  `anim-pop ${sec}s cubic-bezier(0.34,1.56,0.64,1) forwards`,
+  }[style] || `anim-pop ${sec}s ease forwards`;
+}
+
+function showText(text, style, color, durationMs, position, done) {
+  if (style === 'typewriter') { showTypewriter(text, color, durationMs, position, done); return; }
+
+  const { wrap, target } = makeWrapper(position);
   const el = document.createElement('div');
   el.className = 'text-popup';
+  el.textContent = text || '✨';
+  el.style.color = color;
+  el.style.textShadow = `0 0 20px ${color}cc, 0 0 60px ${color}55, 2px 2px 0 rgba(0,0,0,0.8)`;
+  el.style.animation = getTextAnim(style, durationMs / 1000);
 
-  const displayText = text || '✨';
-  el.textContent = displayText;
+  if (style === 'glitch') runGlitch(el, durationMs);
 
-  const animations = {
-    bounce:    'bounceIn 0.6s cubic-bezier(0.34,1.56,0.64,1) forwards, bounceOut 0.5s ease-in 3.5s forwards',
-    explosion: 'explosionPop 4.5s cubic-bezier(0.34,1.56,0.64,1) forwards',
-    rainbow:   'rainbowText 4.5s ease-in-out forwards'
-  };
-
-  el.style.animation = animations[style] || animations.bounce;
-  container.appendChild(el);
-  setTimeout(() => { if (el.parentNode) el.remove(); }, 5000);
+  target.appendChild(el);
+  setTimeout(() => { wrap.remove(); done(); }, durationMs + 200);
 }
 
-// ── Particles ──────────────────────────────────────────────────────────────
-function spawnParticles(type) {
-  const canvas = document.getElementById('particle-canvas');
+// Glitch: JS corrupts random characters on an interval
+function runGlitch(el, durationMs) {
+  const original = el.textContent;
+  const chars = '!@#$%^&*<>[]{}|/?~`';
+  const id = setInterval(() => {
+    if (!el.parentNode) { clearInterval(id); return; }
+    el.textContent = original.split('').map(c =>
+      Math.random() < 0.15 ? chars[Math.floor(Math.random() * chars.length)] : c
+    ).join('');
+    setTimeout(() => { if (el.parentNode) el.textContent = original; }, 60);
+  }, 140);
+  setTimeout(() => clearInterval(id), durationMs - 200);
+}
+
+// Typewriter: letters appear one by one then fade out
+function showTypewriter(text, color, durationMs, position, done) {
+  const { wrap, target } = makeWrapper(position);
+  const el = document.createElement('div');
+  el.className = 'text-popup';
+  el.style.color = color;
+  el.style.textShadow = `0 0 20px ${color}cc, 0 0 60px ${color}55, 2px 2px 0 rgba(0,0,0,0.8)`;
+  el.style.opacity = '1';
+  target.appendChild(el);
+
+  const chars = (text || '✨').split('');
+  const charDelay = Math.min(100, (durationMs * 0.45) / chars.length);
+  let i = 0;
+  const id = setInterval(() => {
+    if (i < chars.length) el.textContent += chars[i++];
+    else clearInterval(id);
+  }, charDelay);
+
+  setTimeout(() => { el.style.transition = 'opacity 0.5s'; el.style.opacity = '0'; }, durationMs - 500);
+  setTimeout(() => { wrap.remove(); done(); }, durationMs + 200);
+}
+
+// ── Particles ─────────────────────────────────────────────────────────────────
+function getCanvas() {
+  const c = document.getElementById('particle-canvas');
+  c.width = 1920; c.height = 1080;
+  return c;
+}
+
+function spawnBurst(color) {
+  const canvas = getCanvas();
   const ctx = canvas.getContext('2d');
-  canvas.width = 1920;
-  canvas.height = 1080;
-
-  const colors = ['#7c5cfc','#fc5c9c','#3ddc84','#ffd166','#06d6a0','#ef476f'];
-  const particles = [];
-  const count = 120;
-
-  const cx = canvas.width / 2;
-  const cy = canvas.height / 2;
-
-  for (let i = 0; i < count; i++) {
+  const palette = [color, '#fc5c9c', '#3ddc84', '#ffd166', '#06d6a0', '#ef476f'];
+  const particles = Array.from({ length: 120 }, () => {
     const angle = Math.random() * Math.PI * 2;
     const speed = 4 + Math.random() * 14;
-    particles.push({
-      x: cx, y: cy,
-      vx: Math.cos(angle) * speed,
-      vy: Math.sin(angle) * speed - 3,
-      color: colors[Math.floor(Math.random() * colors.length)],
-      size: 4 + Math.random() * 8,
-      life: 1,
+    return {
+      x: 960, y: 540,
+      vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed - 3,
+      color: palette[Math.floor(Math.random() * palette.length)],
+      size: 4 + Math.random() * 8, life: 1,
       decay: 0.012 + Math.random() * 0.015,
-      shape: Math.random() > 0.5 ? 'circle' : 'rect'
-    });
-  }
+      shape: Math.random() > 0.5 ? 'c' : 'r'
+    };
+  });
+  runParticles(ctx, particles, false);
+}
 
-  let animId;
+function spawnConfetti() {
+  const canvas = getCanvas();
+  const ctx = canvas.getContext('2d');
+  const palette = ['#7c5cfc','#fc5c9c','#3ddc84','#ffd166','#06d6a0','#ef476f','#ff9f1c','#2ec4b6'];
+  const particles = Array.from({ length: 180 }, () => ({
+    x: Math.random() * 1920, y: -20,
+    vx: (Math.random() - 0.5) * 5, vy: 2 + Math.random() * 5,
+    color: palette[Math.floor(Math.random() * palette.length)],
+    size: 5 + Math.random() * 9, life: 1,
+    decay: 0.004 + Math.random() * 0.006,
+    shape: Math.random() > 0.3 ? 'r' : 'c',
+    rot: Math.random() * Math.PI * 2, rotSpeed: (Math.random() - 0.5) * 0.15
+  }));
+  runParticles(ctx, particles, true);
+}
+
+function runParticles(ctx, particles, isConfetti) {
+  let id;
   function draw() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.clearRect(0, 0, 1920, 1080);
     let alive = false;
     for (const p of particles) {
-      p.x += p.vx;
-      p.y += p.vy;
-      p.vy += 0.4;
+      p.x += p.vx; p.y += p.vy;
+      p.vy += isConfetti ? 0.12 : 0.4;
+      if (isConfetti) p.rot += p.rotSpeed;
       p.life -= p.decay;
       if (p.life <= 0) continue;
       alive = true;
       ctx.globalAlpha = p.life;
       ctx.fillStyle = p.color;
-      if (p.shape === 'circle') {
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-        ctx.fill();
+      if (p.shape === 'c') {
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2); ctx.fill();
       } else {
-        ctx.save();
-        ctx.translate(p.x, p.y);
-        ctx.rotate(p.life * 10);
-        ctx.fillRect(-p.size/2, -p.size/2, p.size, p.size);
+        ctx.save(); ctx.translate(p.x, p.y);
+        ctx.rotate(isConfetti ? p.rot : p.life * 10);
+        ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size);
         ctx.restore();
       }
     }
     ctx.globalAlpha = 1;
-    if (alive) animId = requestAnimationFrame(draw);
-    else ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (alive) id = requestAnimationFrame(draw);
+    else ctx.clearRect(0, 0, 1920, 1080);
   }
-
   draw();
-  setTimeout(() => { cancelAnimationFrame(animId); ctx.clearRect(0,0,canvas.width,canvas.height); }, 5000);
+  setTimeout(() => { cancelAnimationFrame(id); ctx.clearRect(0, 0, 1920, 1080); }, 7000);
 }
 </script>
 </body>

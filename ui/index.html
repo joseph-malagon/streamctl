@@ -597,19 +597,28 @@
               <button class="btn btn-ghost btn-sm" onclick="pickRedemptionSound()">Browse</button>
             </div>
           </div>
-          <div class="field-row" style="grid-template-columns:1fr 1fr;">
+          <div class="field-row" style="grid-template-columns:1fr 1fr 1fr;">
             <div class="field">
               <label>Overlay Text (optional)</label>
               <input type="text" id="newRewardOverlayText" placeholder="🎵 {user} redeemed!">
             </div>
             <div class="field">
               <label>Animation Style</label>
-              <select id="newRewardAnimStyle">
-                <option value="slideIn">Slide In</option>
-                <option value="bounce">Bounce</option>
-                <option value="explosion">Explosion</option>
-                <option value="rainbow">Rainbow</option>
-              </select>
+              <select id="newRewardAnimStyle"></select>
+            </div>
+            <div class="field">
+              <label>Position</label>
+              <select id="newRewardAnimPosition"></select>
+            </div>
+          </div>
+          <div class="field-row" style="grid-template-columns:1fr 1fr;">
+            <div class="field">
+              <label>Duration (seconds)</label>
+              <input type="number" id="newRewardAnimDuration" min="1" max="15" value="4">
+            </div>
+            <div class="field">
+              <label>Color</label>
+              <input type="color" id="newRewardAnimColor" value="#7c5cfc" style="height:38px;padding:4px 8px;cursor:pointer;">
             </div>
           </div>
           <div style="display:flex;gap:8px;margin-top:4px;">
@@ -684,6 +693,12 @@
           <button class="btn btn-ghost btn-sm" onclick="testAnim('bounce')">▶ Bounce</button>
           <button class="btn btn-ghost btn-sm" onclick="testAnim('explosion')">▶ Explosion</button>
           <button class="btn btn-ghost btn-sm" onclick="testAnim('rainbow')">▶ Rainbow</button>
+          <button class="btn btn-ghost btn-sm" onclick="testAnim('shake')">▶ Shake</button>
+          <button class="btn btn-ghost btn-sm" onclick="testAnim('pulse')">▶ Neon Pulse</button>
+          <button class="btn btn-ghost btn-sm" onclick="testAnim('spin')">▶ Spin</button>
+          <button class="btn btn-ghost btn-sm" onclick="testAnim('glitch')">▶ Glitch</button>
+          <button class="btn btn-ghost btn-sm" onclick="testAnim('typewriter')">▶ Typewriter</button>
+          <button class="btn btn-ghost btn-sm" onclick="testAnim('confetti')">▶ Confetti</button>
         </div>
       </div>
     </div>
@@ -1037,7 +1052,11 @@ function renderRedemptions() {
   `).join('');
 }
 
-function showAddRedemption() { document.getElementById('addRedemptionForm').style.display = 'block'; }
+function showAddRedemption() {
+  document.getElementById('addRedemptionForm').style.display = 'block';
+  document.getElementById('newRewardAnimStyle').innerHTML = animStyleOptions();
+  document.getElementById('newRewardAnimPosition').innerHTML = animPositionOptions();
+}
 function hideAddRedemption() { document.getElementById('addRedemptionForm').style.display = 'none'; }
 
 async function pickRedemptionSound() {
@@ -1054,12 +1073,20 @@ async function addRedemption() {
     rewardName: name,
     chatMessage: document.getElementById('newRewardChat').value.trim(),
     soundFile: tempSoundFile.redemption,
-    animation: overlayText ? { text: overlayText, style: document.getElementById('newRewardAnimStyle').value } : null
+    animation: overlayText ? {
+      text: overlayText,
+      style: document.getElementById('newRewardAnimStyle').value,
+      position: document.getElementById('newRewardAnimPosition').value,
+      duration: +document.getElementById('newRewardAnimDuration').value,
+      color: document.getElementById('newRewardAnimColor').value
+    } : null
   });
   tempSoundFile.redemption = null;
   document.getElementById('newRewardName').value = '';
   document.getElementById('newRewardChat').value = '';
   document.getElementById('newRewardOverlayText').value = '';
+  document.getElementById('newRewardAnimDuration').value = '4';
+  document.getElementById('newRewardAnimColor').value = '#7c5cfc';
   document.getElementById('newRewardSoundName').textContent = 'No file selected';
   hideAddRedemption();
   await saveConfig();
@@ -1153,19 +1180,28 @@ function renderTriggers() {
             ${t.soundFile ? `<button class="btn btn-danger btn-sm" onclick="updateTriggerField(${idx},'soundFile',null);renderTriggers()">✕</button>` : ''}
           </div>
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
           <div class="field" style="margin:0;">
             <label>Overlay Text</label>
             <input type="text" value="${t.animation?.text||''}" onchange="updateTriggerAnim(${idx},'text',this.value)" placeholder="🎉 shown on screen">
           </div>
           <div class="field" style="margin:0;">
             <label>Animation Style</label>
-            <select onchange="updateTriggerAnim(${idx},'style',this.value)">
-              <option value="slideIn" ${(t.animation?.style||'slideIn')==='slideIn'?'selected':''}>Slide In</option>
-              <option value="bounce" ${t.animation?.style==='bounce'?'selected':''}>Bounce</option>
-              <option value="explosion" ${t.animation?.style==='explosion'?'selected':''}>Explosion</option>
-              <option value="rainbow" ${t.animation?.style==='rainbow'?'selected':''}>Rainbow</option>
-            </select>
+            <select onchange="updateTriggerAnim(${idx},'style',this.value)">${animStyleOptions(t.animation?.style)}</select>
+          </div>
+          <div class="field" style="margin:0;">
+            <label>Position</label>
+            <select onchange="updateTriggerAnim(${idx},'position',this.value)">${animPositionOptions(t.animation?.position)}</select>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px;">
+          <div class="field" style="margin:0;">
+            <label>Duration (seconds)</label>
+            <input type="number" min="1" max="15" value="${t.animation?.duration??4}" onchange="updateTriggerAnim(${idx},'duration',+this.value)">
+          </div>
+          <div class="field" style="margin:0;">
+            <label>Color</label>
+            <input type="color" value="${t.animation?.color||'#7c5cfc'}" onchange="updateTriggerAnim(${idx},'color',this.value)" style="height:38px;padding:4px 8px;cursor:pointer;">
           </div>
         </div>
       </div>` : ''}
@@ -1281,6 +1317,33 @@ function renderAlerts() {
           ${a.soundFile ? `<button class="btn btn-ghost btn-sm" onclick="testAlertSound('${t.key}')">▶ Test</button>` : ''}
         </div>
       </div>
+      <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
+        <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px;">Animation</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:8px;">
+          <div class="field" style="margin:0;">
+            <label>Overlay Text</label>
+            <input type="text" value="${a.animation?.text||''}" onchange="updateAlertAnim('${t.key}','text',this.value)" placeholder="e.g. Thanks for following!">
+          </div>
+          <div class="field" style="margin:0;">
+            <label>Style</label>
+            <select onchange="updateAlertAnim('${t.key}','style',this.value)">${animStyleOptions(a.animation?.style)}</select>
+          </div>
+          <div class="field" style="margin:0;">
+            <label>Position</label>
+            <select onchange="updateAlertAnim('${t.key}','position',this.value)">${animPositionOptions(a.animation?.position)}</select>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div class="field" style="margin:0;">
+            <label>Duration (seconds)</label>
+            <input type="number" min="1" max="15" value="${a.animation?.duration??4}" onchange="updateAlertAnim('${t.key}','duration',+this.value)">
+          </div>
+          <div class="field" style="margin:0;">
+            <label>Color</label>
+            <input type="color" value="${a.animation?.color||'#7c5cfc'}" onchange="updateAlertAnim('${t.key}','color',this.value)" style="height:38px;padding:4px 8px;cursor:pointer;">
+          </div>
+        </div>
+      </div>
     </div>`;
   }).join('');
 }
@@ -1303,6 +1366,38 @@ function copyOverlayUrl() {
 
 function testAnim(style) {
   ipcRenderer.invoke('test-overlay', { text: '✨ Test Animation!', style, username: 'StreamCtl' });
+}
+
+// ── Animation helpers ──────────────────────────────────────────────────────
+function animStyleOptions(current = 'slideIn') {
+  return [
+    ['slideIn',    'Slide In (card)'],
+    ['bounce',     'Bounce'],
+    ['explosion',  'Explosion'],
+    ['rainbow',    'Rainbow'],
+    ['shake',      'Shake'],
+    ['pulse',      'Neon Pulse'],
+    ['spin',       'Spin'],
+    ['glitch',     'Glitch'],
+    ['typewriter', 'Typewriter'],
+    ['confetti',   'Confetti'],
+  ].map(([v, l]) => `<option value="${v}" ${current===v?'selected':''}>${l}</option>`).join('');
+}
+
+function animPositionOptions(current = 'topRight') {
+  return [
+    ['topRight',    'Top Right'],
+    ['topLeft',     'Top Left'],
+    ['center',      'Center'],
+    ['bottomRight', 'Bottom Right'],
+    ['bottomLeft',  'Bottom Left'],
+  ].map(([v, l]) => `<option value="${v}" ${current===v?'selected':''}>${l}</option>`).join('');
+}
+
+async function updateAlertAnim(key, field, value) {
+  if (!config.alerts[key].animation) config.alerts[key].animation = {};
+  config.alerts[key].animation[field] = value;
+  await saveConfig();
 }
 
 // ── Audio Output ───────────────────────────────────────────────────────────
