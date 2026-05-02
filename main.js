@@ -29,6 +29,12 @@ function soundLibraryDir() {
   return dir;
 }
 
+function memeLibraryDir() {
+  const dir = path.join(app.getPath('userData'), 'memes');
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
 function safeFilePart(value) {
   return String(value || 'sound')
     .toLowerCase()
@@ -55,12 +61,33 @@ function soundMetadata({ id, name, filePath, source = 'local', license = '', att
   };
 }
 
+function memeMetadata({ id, name, filePath, source = 'local', attribution = '', sourceUrl = '', previewUrl = '' }) {
+  return {
+    id,
+    name: name || path.basename(filePath),
+    filePath,
+    source,
+    attribution,
+    sourceUrl,
+    previewUrl,
+    createdAt: new Date().toISOString()
+  };
+}
+
 function extensionFromContentType(contentType) {
   if (/mpeg|mp3/i.test(contentType || '')) return '.mp3';
   if (/ogg/i.test(contentType || '')) return '.ogg';
   if (/wav/i.test(contentType || '')) return '.wav';
   if (/webm/i.test(contentType || '')) return '.webm';
   return '.mp3';
+}
+
+function imageExtensionFromContentType(contentType) {
+  if (/gif/i.test(contentType || '')) return '.gif';
+  if (/png/i.test(contentType || '')) return '.png';
+  if (/webp/i.test(contentType || '')) return '.webp';
+  if (/jpe?g/i.test(contentType || '')) return '.jpg';
+  return '.gif';
 }
 
 function createWindow() {
@@ -151,6 +178,7 @@ ipcMain.handle('get-config', () => store.store);
 
 ipcMain.handle('save-config', (_, config) => {
   store.set(config);
+  if (bot) bot.updateConfig(config);
   return true;
 });
 
@@ -268,6 +296,48 @@ ipcMain.handle('import-remote-sound', async (_, { name, downloadUrl, sourceUrl, 
   return soundMetadata({ id, name, filePath, source: 'freesound', license, attribution, sourceUrl, duration });
 });
 
+ipcMain.handle('search-giphy', async (_, { apiKey, query, rating = 'pg-13' }) => {
+  if (!apiKey) throw new Error('Add a GIPHY API key first.');
+  if (!query || !query.trim()) return [];
+
+  const params = new URLSearchParams({
+    api_key: apiKey,
+    q: query.trim().slice(0, 50),
+    limit: '12',
+    rating,
+    bundle: 'messaging_non_clips'
+  });
+
+  const res = await fetch(`https://api.giphy.com/v1/gifs/search?${params.toString()}`);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.meta?.msg || data.message || 'GIPHY search failed.');
+
+  return (data.data || []).map((gif) => {
+    const preview = gif.images?.fixed_width_small || gif.images?.fixed_width || gif.images?.downsized;
+    const download = gif.images?.downsized_medium || gif.images?.original || gif.images?.downsized;
+    return {
+      id: gif.id,
+      title: gif.title || 'GIPHY meme',
+      username: gif.username || gif.user?.display_name || '',
+      url: gif.url,
+      previewUrl: preview?.url,
+      downloadUrl: download?.url
+    };
+  }).filter((gif) => gif.previewUrl && gif.downloadUrl);
+});
+
+ipcMain.handle('import-remote-meme', async (_, { name, downloadUrl, sourceUrl, attribution, previewUrl }) => {
+  if (!downloadUrl || !/^https:\/\//.test(downloadUrl)) throw new Error('Invalid meme URL.');
+  const res = await fetch(downloadUrl);
+  if (!res.ok) throw new Error(`Could not download meme (${res.status}).`);
+  const buffer = await res.buffer();
+  const id = soundId();
+  const ext = path.extname(new URL(downloadUrl).pathname) || imageExtensionFromContentType(res.headers.get('content-type'));
+  const filePath = path.join(memeLibraryDir(), `${safeFilePart(name || 'meme')}-${id}${ext}`);
+  fs.writeFileSync(filePath, buffer);
+  return memeMetadata({ id, name, filePath, source: 'giphy', attribution, sourceUrl, previewUrl });
+});
+
 ipcMain.handle('pick-image-file', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openFile'],
@@ -291,6 +361,11 @@ ipcMain.handle('test-sound', (_, filePath) => {
 
 ipcMain.handle('test-trigger', (_, trigger) => {
   if (bot) bot.fireTrigger(trigger);
+});
+
+ipcMain.handle('test-meme', (_, filePath, duration, position) => {
+  if (!bot) return { ok: false, reason: 'bot-not-running' };
+  return bot.showMeme(filePath, duration, position);
 });
 
 ipcMain.handle('export-config', async () => {

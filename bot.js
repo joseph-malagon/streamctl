@@ -18,6 +18,11 @@ class TwitchBot {
     this.tokenRefreshInterval = null;
     this.running = false;
     this._refreshing = false; // prevent concurrent refresh attempts
+    this._runtimeMediaFiles = new Set();
+  }
+
+  updateConfig(config) {
+    this.config = config;
   }
 
   async start() {
@@ -520,9 +525,11 @@ class TwitchBot {
   }
 
   showMeme(filePath, duration = 5, position = 'center') {
-    if (!filePath || !fs.existsSync(filePath)) return;
+    if (!filePath || !fs.existsSync(filePath)) return { ok: false, reason: 'file-not-found' };
+    this._runtimeMediaFiles.add(path.resolve(filePath));
     const url = `http://localhost:9000/media?path=${encodeURIComponent(filePath)}`;
     if (this.overlayIO) this.overlayIO.emit('show-meme', { url, duration, position });
+    return { ok: true };
   }
 
   // ── Overlay Server ──────────────────────────────────────────────────────────
@@ -570,6 +577,7 @@ class TwitchBot {
 
     for (const redemption of this.config.redemptions || []) add(redemption.imageFile);
     for (const trigger of this.config.chatTriggers || []) add(trigger.imageFile);
+    for (const filePath of this._runtimeMediaFiles || []) add(filePath);
 
     return files;
   }

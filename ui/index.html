@@ -193,6 +193,24 @@
     0%, 100% { height: 3px; }
     50% { height: 14px; }
   }
+  .audio-controls {
+    display: none;
+    align-items: center;
+    gap: 4px;
+  }
+  .audio-controls.active { display: flex; }
+  .audio-control-btn {
+    width: 24px;
+    height: 24px;
+    border-radius: 5px;
+    border: 1px solid var(--border);
+    background: rgba(255,255,255,0.04);
+    color: var(--text);
+    font-size: 11px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .audio-control-btn:hover { border-color: var(--accent); color: var(--accent); }
 
   /* ── Form ── */
   .field { margin-bottom: 14px; }
@@ -379,6 +397,83 @@
   #toast.show { transform: translateY(0); opacity: 1; }
   #toast.success { border-color: var(--green); color: var(--green); }
   #toast.error { border-color: var(--red); color: var(--red); }
+
+  /* ── GIF preview modal ── */
+  #gif-preview-modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.72);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+  }
+  #gif-preview-modal.open { display: flex; }
+  .gif-preview-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 18px;
+    max-width: 420px;
+    width: 90%;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    box-shadow: 0 16px 48px rgba(0,0,0,0.6);
+  }
+  .gif-preview-box img {
+    width: 100%;
+    border-radius: 8px;
+    max-height: 320px;
+    object-fit: contain;
+    background: var(--bg);
+  }
+  .gif-preview-meta { display: flex; flex-direction: column; gap: 2px; }
+  .gif-preview-title { font-size: 14px; font-weight: 600; color: var(--text); }
+  .gif-preview-sub { font-size: 12px; color: var(--muted); }
+  .gif-preview-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+  /* ── Meme picker modal ── */
+  #meme-picker-modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.72);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+  }
+  #meme-picker-modal.open { display: flex; }
+  .meme-picker-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 18px;
+    max-width: 520px;
+    width: 92%;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    box-shadow: 0 16px 48px rgba(0,0,0,0.6);
+  }
+  .meme-picker-title { font-size: 14px; font-weight: 600; color: var(--text); }
+  .meme-picker-list { max-height: 52vh; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+  .meme-picker-empty { color: var(--muted); font-size: 13px; padding: 8px 0; }
+  .meme-picker-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 8px;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  .meme-picker-item:hover { background: rgba(255,255,255,0.05); }
+  .meme-picker-item-thumb { width: 56px; height: 44px; border-radius: 6px; overflow: hidden; background: var(--bg); flex-shrink: 0; }
+  .meme-picker-item-thumb img { width: 100%; height: 100%; object-fit: cover; }
+  .meme-picker-item-info { flex: 1; min-width: 0; }
+  .meme-picker-item-name { font-size: 13px; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .meme-picker-item-sub { font-size: 11px; color: var(--muted); }
+  .meme-picker-footer { display: flex; gap: 8px; justify-content: space-between; padding-top: 4px; border-top: 1px solid var(--border); }
 </style>
 </head>
 <body>
@@ -391,6 +486,10 @@
     </div>
     <div class="sound-bar" id="soundBar">
       <span></span><span></span><span></span><span></span><span></span>
+    </div>
+    <div class="audio-controls" id="audioControls">
+      <button class="audio-control-btn" id="pauseAudioBtn" onclick="toggleAudioPause()" title="Pause audio">Ⅱ</button>
+      <button class="audio-control-btn" onclick="stopAllAudio()" title="Stop audio">■</button>
     </div>
     <div class="status-dot" id="statusDot"></div>
     <span class="status-text" id="statusText">OFFLINE</span>
@@ -788,6 +887,41 @@
           <button class="btn btn-ghost btn-sm" onclick="testAnim('confetti')">▶ Confetti</button>
         </div>
       </div>
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">Meme Library</div>
+            <div class="card-subtitle">Imported and searched GIFs ready for redemption and trigger popups</div>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="importMemeToLibrary()">+ Import File</button>
+        </div>
+        <div id="memeLibraryList"></div>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">Search GIPHY</div>
+            <div class="card-subtitle">Preview GIFs and import them into your meme library</div>
+          </div>
+        </div>
+        <div class="field-row" style="grid-template-columns:1fr 2fr auto;">
+          <div class="field">
+            <label>API Key</label>
+            <input type="password" id="giphyApiKey" placeholder="GIPHY API key" onchange="saveGiphyKey(this.value)">
+          </div>
+          <div class="field">
+            <label>Search</label>
+            <input type="text" id="giphyQuery" placeholder="hype, confused, celebration..." onkeydown="if(event.key==='Enter') searchGiphy()">
+          </div>
+          <div class="field" style="display:flex;align-items:flex-end;">
+            <button class="btn btn-primary" onclick="searchGiphy()">Search</button>
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin:-4px 0 10px;">
+          Powered by GIPHY · <span style="color:var(--accent);cursor:pointer;" onclick="openExternalURL('https://developers.giphy.com/dashboard/')">Get an API key</span>
+        </div>
+        <div id="giphyResults"></div>
+      </div>
     </div>
 
     <!-- Settings -->
@@ -839,6 +973,31 @@
   </div><!-- /content -->
 </div><!-- /layout -->
 
+<div id="meme-picker-modal" onclick="closeMemePickerModal(event)">
+  <div class="meme-picker-box">
+    <div class="meme-picker-title">Pick a Meme</div>
+    <div class="meme-picker-list" id="memePickerList"></div>
+    <div class="meme-picker-footer">
+      <button class="btn btn-ghost" onclick="memePickerBrowseFile()">Browse File...</button>
+      <button class="btn btn-ghost" onclick="closeMemePickerModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div id="gif-preview-modal" onclick="closeGifPreview(event)">
+  <div class="gif-preview-box">
+    <img id="gif-preview-img" src="" alt="">
+    <div class="gif-preview-meta">
+      <div class="gif-preview-title" id="gif-preview-title"></div>
+      <div class="gif-preview-sub" id="gif-preview-sub"></div>
+    </div>
+    <div class="gif-preview-actions">
+      <button class="btn btn-ghost" onclick="closeGifPreview()">Close</button>
+      <button class="btn btn-primary" id="gif-preview-import-btn">Import</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script>
@@ -857,6 +1016,8 @@ const defaultConfig = {
   chatTriggers: [],
   soundLibrary: [],
   freesoundApiKey: '',
+  memeLibrary: [],
+  giphyApiKey: '',
   alerts: {
     follow: { enabled: true, chatMessage: 'Welcome {user}! Thanks for the follow! 👋', soundFile: null, animation: null },
     sub:    { enabled: true, chatMessage: 'Thank you {user} for subscribing! 🎉', soundFile: null, animation: null },
@@ -883,6 +1044,8 @@ function normalizeConfig(saved = {}) {
     chatTriggers: Array.isArray(source.chatTriggers) ? source.chatTriggers : defaults.chatTriggers,
     soundLibrary: Array.isArray(source.soundLibrary) ? source.soundLibrary : defaults.soundLibrary,
     freesoundApiKey: source.freesoundApiKey || defaults.freesoundApiKey,
+    memeLibrary: Array.isArray(source.memeLibrary) ? source.memeLibrary : defaults.memeLibrary,
+    giphyApiKey: source.giphyApiKey || defaults.giphyApiKey,
     alerts: {}
   };
 
@@ -905,6 +1068,8 @@ let stats = { follows: 0, redemptions: 0, triggers: 0 };
 let tempSoundFile = { redemption: null, trigger: null };
 let selectedAudioDeviceId = '';
 let audioVolume = 1.0;
+let activeAudio = new Set();
+let audioPaused = false;
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -963,6 +1128,8 @@ function sanitizeActivityHtml(html) {
   renderAlerts();
   renderSoundLibrary();
   document.getElementById('freesoundApiKey').value = config.freesoundApiKey || '';
+  renderMemeLibrary();
+  document.getElementById('giphyApiKey').value = config.giphyApiKey || '';
   refreshAudioDevices();
   // Restore activity history from last session
   const history = await ipcRenderer.invoke('get-history');
@@ -997,6 +1164,7 @@ document.querySelectorAll('.nav-item').forEach(item => {
     document.getElementById('page-' + item.dataset.page).classList.add('active');
     if (item.dataset.page === 'settings') refreshAudioDevices();
     if (item.dataset.page === 'sounds') renderSoundLibrary();
+    if (item.dataset.page === 'overlay') renderMemeLibrary();
     if (item.dataset.page === 'overlay') {
       const el = document.getElementById('testAnimPosition');
       if (el && !el.children.length) el.innerHTML = animPositionOptions();
@@ -1269,6 +1437,7 @@ let recordingChunks = [];
 let currentRecording = null;
 let currentRecordingMime = '';
 let freesoundResults = [];
+let giphyResults = [];
 
 function fileName(filePath) {
   return String(filePath || '').split(/[\\/]/).pop();
@@ -1458,9 +1627,7 @@ function renderFreesoundResults() {
 function previewRemoteSound(i) {
   const sound = freesoundResults[i];
   if (!sound?.previewUrl) return;
-  const audio = new Audio(sound.previewUrl);
-  audio.volume = audioVolume;
-  audio.play().catch(() => toast('Could not preview sound.', 'error'));
+  playTrackedAudio(sound.previewUrl).catch(() => toast('Could not preview sound.', 'error'));
 }
 
 async function importFreesoundResult(i) {
@@ -1484,6 +1651,200 @@ async function importFreesoundResult(i) {
   }
 }
 
+// ── Meme Library ───────────────────────────────────────────────────────────
+function memeLabel(meme) {
+  const parts = [meme.name || fileName(meme.filePath)];
+  if (meme.source && meme.source !== 'local') parts.push(meme.source);
+  if (meme.attribution) parts.push(meme.attribution);
+  return parts.join(' · ');
+}
+
+function renderMemeLibrary() {
+  const list = document.getElementById('memeLibraryList');
+  if (!list) return;
+  const memes = config.memeLibrary || [];
+  if (!memes.length) {
+    list.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px 0;">No memes yet. Import a GIF/image or search GIPHY to add one.</div>';
+    return;
+  }
+  list.innerHTML = memes.map((m, i) => `
+    <div class="list-item">
+      <div style="width:54px;height:42px;border-radius:6px;overflow:hidden;background:var(--bg);flex-shrink:0;">
+        <img src="${escapeHtml(m.previewUrl || pathToFileURL(m.filePath))}" style="width:100%;height:100%;object-fit:cover;">
+      </div>
+      <div class="list-item-info">
+        <div class="list-item-name">${escapeHtml(m.name || fileName(m.filePath))}</div>
+        <div class="list-item-sub">
+          ${escapeHtml(fileName(m.filePath))}
+          ${m.attribution ? ' · by ' + escapeHtml(m.attribution) : ''}
+        </div>
+      </div>
+      <span class="pill pill-purple">${escapeHtml(m.source || 'local')}</span>
+      <button class="btn btn-ghost btn-sm" onclick="testMeme('${jsString(m.filePath)}')">▶</button>
+      <button class="btn btn-danger btn-sm" onclick="removeLibraryMeme(${i})">✕</button>
+    </div>
+  `).join('');
+}
+
+async function importMemeToLibrary() {
+  const filePath = await ipcRenderer.invoke('pick-image-file');
+  if (!filePath) return;
+  const meme = {
+    id: Date.now().toString(36),
+    name: fileName(filePath),
+    filePath,
+    source: 'local',
+    previewUrl: pathToFileURL(filePath),
+    createdAt: new Date().toISOString()
+  };
+  config.memeLibrary.push(meme);
+  await saveConfig();
+  renderMemeLibrary();
+  toast(`Imported ${meme.name}`, 'success');
+}
+
+async function removeLibraryMeme(i) {
+  config.memeLibrary.splice(i, 1);
+  await saveConfig();
+  renderMemeLibrary();
+}
+
+let _memePickerResolve = null;
+
+function openMemePickerModal() {
+  const memes = config.memeLibrary || [];
+  const list = document.getElementById('memePickerList');
+  if (!memes.length) {
+    list.innerHTML = '<div class="meme-picker-empty">No memes saved yet — import GIFs via the Overlays tab first, or use Browse File to pick directly.</div>';
+  } else {
+    list.innerHTML = memes.map((m, i) => `
+      <div class="meme-picker-item" onclick="selectMemePicker(${i})">
+        <div class="meme-picker-item-thumb">
+          <img src="${escapeHtml(m.previewUrl || pathToFileURL(m.filePath))}" alt="">
+        </div>
+        <div class="meme-picker-item-info">
+          <div class="meme-picker-item-name">${escapeHtml(m.name || fileName(m.filePath))}</div>
+          <div class="meme-picker-item-sub">${escapeHtml(m.source || 'local')}${m.attribution ? ' · by ' + escapeHtml(m.attribution) : ''}</div>
+        </div>
+        <button class="btn btn-primary btn-sm">Select</button>
+      </div>
+    `).join('');
+  }
+  document.getElementById('meme-picker-modal').classList.add('open');
+  return new Promise(resolve => { _memePickerResolve = resolve; });
+}
+
+function selectMemePicker(i) {
+  const resolve = _memePickerResolve;
+  _memePickerResolve = null;
+  document.getElementById('meme-picker-modal').classList.remove('open');
+  const meme = (config.memeLibrary || [])[i];
+  if (resolve) resolve(meme?.filePath || null);
+}
+
+async function memePickerBrowseFile() {
+  const resolve = _memePickerResolve;
+  _memePickerResolve = null;
+  document.getElementById('meme-picker-modal').classList.remove('open');
+  const f = await ipcRenderer.invoke('pick-image-file');
+  if (resolve) resolve(f || null);
+}
+
+function closeMemePickerModal(event) {
+  if (event && event.target !== document.getElementById('meme-picker-modal')) return;
+  const resolve = _memePickerResolve;
+  _memePickerResolve = null;
+  document.getElementById('meme-picker-modal').classList.remove('open');
+  if (resolve) resolve(null);
+}
+
+function chooseMemeFile() {
+  return openMemePickerModal();
+}
+
+async function saveGiphyKey(value) {
+  config.giphyApiKey = value.trim();
+  await saveConfig();
+  toast('GIPHY key saved.', 'success');
+}
+
+async function searchGiphy() {
+  const apiKey = document.getElementById('giphyApiKey').value.trim();
+  const query = document.getElementById('giphyQuery').value.trim();
+  config.giphyApiKey = apiKey;
+  await saveConfig();
+  const container = document.getElementById('giphyResults');
+  container.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px 0;">Searching...</div>';
+  try {
+    giphyResults = await ipcRenderer.invoke('search-giphy', { apiKey, query });
+    renderGiphyResults();
+  } catch (err) {
+    container.innerHTML = '';
+    toast(err.message, 'error');
+  }
+}
+
+function renderGiphyResults() {
+  const container = document.getElementById('giphyResults');
+  if (!giphyResults.length) {
+    container.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px 0;">No matching memes found.</div>';
+    return;
+  }
+  container.innerHTML = giphyResults.map((m, i) => `
+    <div class="list-item">
+      <div style="width:70px;height:54px;border-radius:6px;overflow:hidden;background:var(--bg);flex-shrink:0;">
+        <img src="${escapeHtml(m.previewUrl)}" style="width:100%;height:100%;object-fit:cover;">
+      </div>
+      <div class="list-item-info">
+        <div class="list-item-name">${escapeHtml(m.title)}</div>
+        <div class="list-item-sub">Powered by GIPHY${m.username ? ' · by ' + escapeHtml(m.username) : ''}</div>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="previewGiphyResult(${i})">▶</button>
+      <button class="btn btn-primary btn-sm" onclick="importGiphyResult(${i})">Import</button>
+    </div>
+  `).join('');
+}
+
+function previewGiphyResult(i) {
+  const result = giphyResults[i];
+  if (!result?.previewUrl) return;
+  document.getElementById('gif-preview-img').src = result.previewUrl;
+  document.getElementById('gif-preview-title').textContent = result.title;
+  document.getElementById('gif-preview-sub').textContent =
+    (result.username ? 'by ' + result.username + ' · ' : '') + 'Powered by GIPHY';
+  document.getElementById('gif-preview-import-btn').onclick = () => { closeGifPreview(); importGiphyResult(i); };
+  document.getElementById('gif-preview-modal').classList.add('open');
+}
+
+function closeGifPreview(event) {
+  if (event && event.target !== document.getElementById('gif-preview-modal')) return;
+  document.getElementById('gif-preview-modal').classList.remove('open');
+  document.getElementById('gif-preview-img').src = '';
+}
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { closeGifPreview(); closeMemePickerModal(); }
+});
+
+async function importGiphyResult(i) {
+  const result = giphyResults[i];
+  if (!result?.downloadUrl) return;
+  try {
+    const meme = await ipcRenderer.invoke('import-remote-meme', {
+      name: result.title,
+      downloadUrl: result.downloadUrl,
+      sourceUrl: result.url,
+      attribution: result.username,
+      previewUrl: result.previewUrl
+    });
+    config.memeLibrary.push(meme);
+    await saveConfig();
+    renderMemeLibrary();
+    toast(`Imported ${meme.name}`, 'success');
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
 // ── Redemptions ────────────────────────────────────────────────────────────
 function renderRedemptions() {
   const list = document.getElementById('redemptionList');
@@ -1496,9 +1857,10 @@ function renderRedemptions() {
       <label class="toggle"><input type="checkbox" ${r.enabled?'checked':''} onchange="toggleRedemption(${i},this.checked)"><span class="toggle-slider"></span></label>
       <div class="list-item-info">
         <div class="list-item-name">${escapeHtml(r.rewardName)}</div>
-        <div class="list-item-sub">${r.soundFile ? '🔊 ' + escapeHtml(r.soundFile.split(/[\\/]/).pop()) : 'No sound'} ${r.animation?.text ? '· 🎬 ' + escapeHtml(r.animation.text) : ''}</div>
+        <div class="list-item-sub">${r.soundFile ? '🔊 ' + escapeHtml(r.soundFile.split(/[\\/]/).pop()) : 'No sound'} ${r.imageFile ? '· 🖼️ ' + escapeHtml(r.imageFile.split(/[\\/]/).pop()) : ''} ${r.animation?.text ? '· 🎬 ' + escapeHtml(r.animation.text) : ''}</div>
       </div>
       <span class="pill pill-purple">${escapeHtml(r.animation?.style || 'none')}</span>
+      ${r.imageFile ? `<button class="btn btn-ghost btn-sm" onclick="testMeme('${jsString(r.imageFile)}', ${r.memeDuration || 5}, '${jsString(r.memePosition || 'center')}')">▶ Meme</button>` : ''}
       <button class="btn btn-danger btn-sm" onclick="removeRedemption(${i})">✕</button>
     </div>
   `).join('');
@@ -1517,7 +1879,7 @@ async function pickRedemptionSound() {
 }
 
 async function pickRedemptionMeme() {
-  const f = await ipcRenderer.invoke('pick-image-file');
+  const f = await chooseMemeFile();
   if (f) {
     tempSoundFile.redemptionMeme = f;
     document.getElementById('newRewardMemeName').textContent = f.split(/[\\/]/).pop();
@@ -1530,8 +1892,19 @@ function clearRedemptionMeme() {
   document.getElementById('newRewardMemeClear').style.display = 'none';
 }
 
+async function testMeme(filePath, duration = 5, position = 'center') {
+  const result = await ipcRenderer.invoke('test-meme', filePath, duration, position);
+  if (!result?.ok) {
+    const msg = {
+      'bot-not-running': 'Connect the bot first, then test the meme.',
+      'file-not-found': 'Meme file not found — was it moved or deleted?'
+    }[result?.reason] || 'Could not show meme.';
+    toast(msg, 'error');
+  }
+}
+
 async function pickTriggerMemeFor(i) {
-  const f = await ipcRenderer.invoke('pick-image-file');
+  const f = await chooseMemeFile();
   if (f) {
     config.chatTriggers[i].imageFile = f;
     await saveConfig();
@@ -1667,6 +2040,7 @@ function renderTriggers() {
           <div class="file-picker">
             <span class="file-picker-name">${t.imageFile ? escapeHtml(t.imageFile.split(/[\\/]/).pop()) : 'No file selected'}</span>
             <button class="btn btn-ghost btn-sm" onclick="pickTriggerMemeFor(${idx})">Browse</button>
+            ${t.imageFile ? `<button class="btn btn-ghost btn-sm" onclick="testMeme('${jsString(t.imageFile)}', ${t.memeDuration || 5}, '${jsString(t.memePosition || 'center')}')">▶</button>` : ''}
             ${t.imageFile ? `<button class="btn btn-danger btn-sm" onclick="updateTriggerField(${idx},'imageFile',null);renderTriggers()">✕</button>` : ''}
           </div>
         </div>
@@ -1989,14 +2363,68 @@ async function saveVolume(val) {
   await saveConfig();
 }
 
-async function playAudioFile(filePath) {
+function updateAudioControls() {
+  const controls = document.getElementById('audioControls');
+  const pauseBtn = document.getElementById('pauseAudioBtn');
+  if (!controls || !pauseBtn) return;
+  controls.classList.toggle('active', activeAudio.size > 0);
+  pauseBtn.textContent = audioPaused ? '▶' : 'Ⅱ';
+  pauseBtn.title = audioPaused ? 'Resume audio' : 'Pause audio';
+}
+
+async function playTrackedAudio(source) {
+  const audio = new Audio(source);
+  activeAudio.add(audio);
+  audioPaused = false;
+  audio.volume = audioVolume;
+  audio.addEventListener('ended', () => {
+    activeAudio.delete(audio);
+    updateAudioControls();
+  }, { once: true });
+  audio.addEventListener('error', () => {
+    activeAudio.delete(audio);
+    updateAudioControls();
+  }, { once: true });
+  updateAudioControls();
   try {
-    const audio = new Audio(pathToFileURL(filePath));
-    audio.volume = audioVolume;
     if (selectedAudioDeviceId) {
       await audio.setSinkId(selectedAudioDeviceId);
     }
     await audio.play();
+  } catch (e) {
+    activeAudio.delete(audio);
+    updateAudioControls();
+    throw e;
+  }
+  return audio;
+}
+
+function toggleAudioPause() {
+  if (!activeAudio.size) return;
+  audioPaused = !audioPaused;
+  for (const audio of activeAudio) {
+    if (audioPaused) audio.pause();
+    else audio.play().catch(() => {});
+  }
+  updateAudioControls();
+}
+
+function stopAllAudio() {
+  for (const audio of activeAudio) {
+    audio.pause();
+    audio.currentTime = 0;
+  }
+  activeAudio.clear();
+  audioPaused = false;
+  const bar = document.getElementById('soundBar');
+  if (bar) bar.classList.remove('active');
+  clearTimeout(soundBarTimeout);
+  updateAudioControls();
+}
+
+async function playAudioFile(filePath) {
+  try {
+    await playTrackedAudio(pathToFileURL(filePath));
   } catch (e) {
     console.error('Audio playback error:', e);
   }
