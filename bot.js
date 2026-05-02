@@ -22,7 +22,9 @@ class TwitchBot {
 
   async start() {
     this.running = true;
-    await this._startOverlayServer();
+    // Only start the overlay server once — keep it alive across bot restarts
+    // so OBS never loses the socket.io connection and doesn't need to refresh
+    if (!this.overlayServer) await this._startOverlayServer();
     await this._startChat();
     if (this.config.credentials?.accessToken) {
       this._startEventSubPolling();
@@ -45,10 +47,7 @@ class TwitchBot {
       clearInterval(this.tokenRefreshInterval);
       this.tokenRefreshInterval = null;
     }
-    if (this.overlayServer) {
-      this.overlayServer.close();
-      this.overlayServer = null;
-    }
+    // Overlay server stays running so OBS keeps its socket connection
     this.onEvent('status', { connected: false, message: 'Bot stopped.' });
   }
 
