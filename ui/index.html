@@ -424,6 +424,7 @@
 
     <div class="sidebar-footer">
       <button class="btn-connect" id="connectBtn" onclick="toggleBot()">GO LIVE</button>
+      <div style="text-align:center;margin-top:10px;font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:0.08em;" id="appVersion"></div>
     </div>
   </nav>
 
@@ -769,6 +770,7 @@ let audioVolume = 1.0;
   if (saved && Object.keys(saved).length) {
     config = { ...config, ...saved };
   }
+  document.getElementById('appVersion').textContent = 'v' + require('../package.json').version;
   selectedAudioDeviceId = config.audioOutputDeviceId || '';
   audioVolume = config.audioVolume ?? 1.0;
   const slider = document.getElementById('volumeSlider');
