@@ -166,8 +166,17 @@ class TwitchBot {
   // ── Chat ────────────────────────────────────────────────────────────────────
 
   async _startChat() {
-    const { channel, botUsername, oauthToken } = this.config.credentials || {};
-    if (!channel || !botUsername || !oauthToken) return;
+    const creds = this.config.credentials || {};
+    const channel = creds.channel;
+    const botUsername = creds.botUsername || creds.botLogin;
+    // botAccessToken is the raw token — tmi.js needs it in oauth:TOKEN format
+    const oauthToken = creds.oauthToken ||
+      (creds.botAccessToken ? `oauth:${creds.botAccessToken}` : null);
+
+    if (!channel || !botUsername || !oauthToken) {
+      this.onEvent('status', { connected: false, message: 'Missing chat credentials — connect bot account in Settings.' });
+      return;
+    }
 
     // Dedup set — stores message IDs we've already processed
     // Prevents double-firing on reconnect replays
@@ -359,8 +368,8 @@ class TwitchBot {
       if (match.soundFile) this.playSound(match.soundFile);
       if (match.animation) this.sendOverlay({ ...match.animation, username });
       if (match.chatMessage && this.chatClient) {
-        const msg = match.chatMessage.replace('{user}', username);
-        this.chatClient.say(`#${this.config.credentials.channel}`, msg);
+        const msg = match.chatMessage.replace(/\{user\}/gi, username);
+        this.chatClient.say(`#${this.config.credentials.channel}`, msg).catch(() => {});
       }
     }
   }
@@ -373,8 +382,8 @@ class TwitchBot {
       if (alerts.follow.soundFile) this.playSound(alerts.follow.soundFile);
       if (alerts.follow.animation) this.sendOverlay({ ...alerts.follow.animation, username });
       if (alerts.follow.chatMessage && this.chatClient) {
-        const msg = alerts.follow.chatMessage.replace('{user}', username);
-        this.chatClient.say(`#${this.config.credentials.channel}`, msg);
+        const msg = alerts.follow.chatMessage.replace(/\{user\}/gi, username);
+        this.chatClient.say(`#${this.config.credentials.channel}`, msg).catch(() => {});
       }
     }
   }

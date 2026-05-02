@@ -30,8 +30,7 @@ function createWindow() {
       contextIsolation: false
     },
     titleBarStyle: 'hiddenInset',
-    backgroundColor: '#0d0d14',
-    icon: path.join(__dirname, 'assets/icon.png')
+    backgroundColor: '#0d0d14'
   });
 
   mainWindow.loadFile('ui/index.html');
@@ -191,7 +190,8 @@ ipcMain.handle('test-overlay', (_, animConfig) => {
 
 ipcMain.handle('start-oauth', async (_, { clientId, clientSecret, scopes }) => {
   return new Promise((resolve) => {
-    const redirectUri = 'http://localhost';
+    // Port 7878 — high enough to not need admin rights on Windows
+    const redirectUri = 'http://localhost:7878';
     const state = Math.random().toString(36).substring(2);
 
     const authUrl = new URL('https://id.twitch.tv/oauth2/authorize');
@@ -271,7 +271,7 @@ ipcMain.handle('start-oauth', async (_, { clientId, clientSecret, scopes }) => {
       }
     });
 
-    server.listen(80, () => {
+    server.listen(7878, () => {
       shell.openExternal(authUrl.toString());
     });
   });
