@@ -2,29 +2,45 @@ name: Build & Release
 
 on:
   push:
-    tags:
-      - 'v*'        # triggers on any tag like v1.0.1, v1.2.0, etc.
+    branches:
+      - main
 
 jobs:
-  build:
-    runs-on: windows-latest   # must be Windows to build a Windows installer
+  release:
+    runs-on: windows-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # need full history so we can check existing tags
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Read version from package.json
+        id: pkg
+        shell: bash
+        run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
+
+      - name: Skip if this version was already released
+        id: check
+        shell: bash
+        run: |
+          if git tag | grep -q "^v${{ steps.pkg.outputs.version }}$"; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.check.outputs.skip == 'false'
         with:
           node-version: '20'
           cache: 'npm'
 
       - name: Install dependencies
+        if: steps.check.outputs.skip == 'false'
         run: npm install
 
       - name: Build & publish installer
+        if: steps.check.outputs.skip == 'false'
         env:
-          # GitHub token is automatically provided by Actions
-          # electron-builder uses it to create the Release and upload files
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run release
