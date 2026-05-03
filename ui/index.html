@@ -871,7 +871,7 @@
             <span style="font-size:20px">🎬</span>
             <div class="card-title">Auto-Clip</div>
           </div>
-          <button class="btn btn-ghost btn-sm" onclick="manualCreateClip()">✂ Create Clip Now</button>
+          <button class="btn btn-ghost btn-sm" id="createClipBtn" onclick="manualCreateClip()">✂ Create Clip Now</button>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:4px;">
           <div class="field" style="margin:0;">
@@ -1362,7 +1362,8 @@ ipcRenderer.on('bot-event', (_, { event, data }) => {
   }
   if (event === 'clip-created') {
     addActivity('🎬', `Clip created: <a href="#" onclick="openExternalURL('${escapeHtml(data.url)}');return false;" style="color:var(--accent);">${escapeHtml(data.url)}</a>`);
-    toast('Clip created!', 'success');
+    // manual clips copy the URL and show it; auto clips just toast quietly
+    if (!_manualClipPending) toast('Clip created!', 'success');
   }
   if (event === 'clip-error') {
     addActivity('⚠️', `<strong>Clip failed:</strong> ${escapeHtml(data.message)}`);
@@ -2424,14 +2425,25 @@ async function updateAutoClip(field, value) {
   config.autoClip[field] = value;
   await saveConfig();
 }
+let _manualClipPending = false;
 async function manualCreateClip() {
+  if (_manualClipPending) return;
+  const btn = document.getElementById('createClipBtn');
+  _manualClipPending = true;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Creating…'; }
+
   const result = await ipcRenderer.invoke('create-clip');
-  if (!result?.ok) {
-    const msg = result?.reason === 'bot-not-running'
-      ? 'Start the bot first, then create a clip.'
-      : 'Could not create clip.';
-    toast(msg, 'error');
+
+  if (btn) { btn.disabled = false; btn.textContent = '✂ Create Clip Now'; }
+  _manualClipPending = false;
+
+  if (result?.ok && result.url) {
+    navigator.clipboard.writeText(result.url).catch(() => {});
+    toast(`Clip created — URL copied!`, 'success');
+  } else if (result?.reason === 'bot-not-running') {
+    toast('Start the bot first, then create a clip.', 'error');
   }
+  // all other errors are already toasted via the clip-error bot event
 }
 
 async function toggleAlert(key, val) { config.alerts[key].enabled = val; await saveConfig(); renderAlerts(); }
