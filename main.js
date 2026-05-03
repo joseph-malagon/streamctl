@@ -347,7 +347,7 @@ ipcMain.handle('pick-image-file', async () => {
 });
 
 ipcMain.handle('get-overlay-url', () => {
-  return `http://localhost:9000/overlay`;
+  return `http://127.0.0.1:9000/overlay`;
 });
 
 ipcMain.handle('test-sound', (_, filePath) => {

@@ -572,7 +572,7 @@ class TwitchBot {
   showMeme(filePath, duration = 5, position = 'center') {
     if (!filePath || !fs.existsSync(filePath)) return { ok: false, reason: 'file-not-found' };
     this._runtimeMediaFiles.add(path.resolve(filePath));
-    const url = `http://localhost:9000/media?path=${encodeURIComponent(filePath)}`;
+    const url = `http://127.0.0.1:9000/media?path=${encodeURIComponent(filePath)}`;
     if (this.overlayIO) this.overlayIO.emit('show-meme', { url, duration, position });
     return { ok: true };
   }

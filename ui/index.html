@@ -930,7 +930,7 @@
         <div class="card-title" style="margin-bottom:10px">Browser Source URL</div>
         <div class="card-subtitle" style="margin-bottom:14px">Copy this URL into OBS as a Browser Source (1920×1080 recommended)</div>
         <div class="overlay-url">
-          <code id="overlayUrl">http://localhost:9000/overlay</code>
+          <code id="overlayUrl">http://127.0.0.1:9000/overlay</code>
           <button class="btn btn-ghost btn-sm" onclick="copyOverlayUrl()">Copy</button>
         </div>
       </div>
@@ -2458,7 +2458,7 @@ function testAlert(key) {
 
 // ── Overlay ────────────────────────────────────────────────────────────────
 function copyOverlayUrl() {
-  navigator.clipboard.writeText('http://localhost:9000/overlay');
+  navigator.clipboard.writeText('http://127.0.0.1:9000/overlay');
   toast('URL copied!', 'success');
 }
 
