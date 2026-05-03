@@ -302,6 +302,12 @@ class TwitchBot {
 
     this.onEvent('chat', { username, message });
 
+    const autoClip = this.config.autoClip || {};
+    if (autoClip.chatCommand && normalized === '!clip') {
+      const isMod = tags.mod === '1' || tags.badges?.broadcaster === '1';
+      if (!autoClip.modOnly || isMod) this.createClip();
+    }
+
     const triggers = this.config.chatTriggers || [];
     const now = Date.now();
 
@@ -504,6 +510,9 @@ class TwitchBot {
         this.chatClient.say(`#${this.config.credentials.channel}`, msg).catch(() => {});
       }
     }
+
+    const autoClip = this.config.autoClip || {};
+    if (autoClip.onBits && bits >= (autoClip.bitsThreshold ?? 100)) this.createClip();
   }
 
   _handleRaid(username, viewers) {
@@ -518,6 +527,38 @@ class TwitchBot {
         const msg = alerts.raid.chatMessage.replace(/\{user\}/gi, username);
         this.chatClient.say(`#${this.config.credentials.channel}`, msg).catch(() => {});
       }
+    }
+
+    const autoClip = this.config.autoClip || {};
+    if (autoClip.onRaid) this.createClip();
+  }
+
+  // ── Clip ────────────────────────────────────────────────────────────────────
+
+  async createClip() {
+    const { clientId, accessToken, broadcasterId } = this.config.credentials || {};
+    if (!clientId || !accessToken || !broadcasterId) {
+      this.onEvent('clip-error', { message: 'Missing credentials — connect the bot first.' });
+      return { ok: false };
+    }
+    try {
+      const res = await fetch(
+        `https://api.twitch.tv/helix/clips?broadcaster_id=${broadcasterId}`,
+        { method: 'POST', headers: { 'Client-Id': clientId, 'Authorization': `Bearer ${accessToken}` } }
+      );
+      if (!res.ok) {
+        this.onEvent('clip-error', { message: `Clip failed (${res.status}) — re-auth with clips:edit scope?` });
+        return { ok: false };
+      }
+      const json = await res.json();
+      const clipId = json.data?.[0]?.id;
+      if (!clipId) { this.onEvent('clip-error', { message: 'Clip created but no ID returned.' }); return { ok: false }; }
+      const url = `https://clips.twitch.tv/${clipId}`;
+      this.onEvent('clip-created', { url });
+      return { ok: true, url };
+    } catch {
+      this.onEvent('clip-error', { message: 'Network error creating clip.' });
+      return { ok: false };
     }
   }
 

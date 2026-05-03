@@ -368,6 +368,11 @@ ipcMain.handle('test-meme', (_, filePath, duration, position) => {
   return bot.showMeme(filePath, duration, position);
 });
 
+ipcMain.handle('create-clip', async () => {
+  if (!bot) return { ok: false, reason: 'bot-not-running' };
+  return bot.createClip();
+});
+
 ipcMain.handle('export-config', async () => {
   const result = await dialog.showSaveDialog(mainWindow, {
     defaultPath: 'streamctl-config.json',

@@ -26,7 +26,8 @@ const allowedChannels = new Set([
   'check-for-updates',
   'install-update',
   'test-overlay',
-  'start-oauth'
+  'start-oauth',
+  'create-clip'
 ]);
 
 const allowedEvents = new Set([

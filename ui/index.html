@@ -865,6 +865,62 @@
     <div class="page" id="page-alerts">
       <div class="page-title">Follow / Sub / Raid Alerts</div>
       <div id="alertCards"></div>
+      <div class="card" id="autoClipCard" style="margin-top:16px;">
+        <div class="card-header">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <span style="font-size:20px">🎬</span>
+            <div class="card-title">Auto-Clip</div>
+          </div>
+          <button class="btn btn-ghost btn-sm" onclick="manualCreateClip()">✂ Create Clip Now</button>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:4px;">
+          <div class="field" style="margin:0;">
+            <label>!clip chat command</label>
+            <div style="display:flex;align-items:center;gap:10px;margin-top:6px;">
+              <label class="toggle" style="margin:0;">
+                <input type="checkbox" id="autoClipCmd" onchange="updateAutoClip('chatCommand',this.checked)">
+                <span class="toggle-slider"></span>
+              </label>
+              <span style="font-size:12px;color:var(--muted);" id="autoClipCmdLabel">Viewers can type !clip</span>
+            </div>
+          </div>
+          <div class="field" style="margin:0;" id="autoClipModField">
+            <label>Mod only</label>
+            <div style="display:flex;align-items:center;gap:10px;margin-top:6px;">
+              <label class="toggle" style="margin:0;">
+                <input type="checkbox" id="autoClipMod" onchange="updateAutoClip('modOnly',this.checked)">
+                <span class="toggle-slider"></span>
+              </label>
+              <span style="font-size:12px;color:var(--muted);">Restrict to mods &amp; you</span>
+            </div>
+          </div>
+          <div class="field" style="margin:0;">
+            <label>Clip on raid</label>
+            <div style="display:flex;align-items:center;gap:10px;margin-top:6px;">
+              <label class="toggle" style="margin:0;">
+                <input type="checkbox" id="autoClipRaid" onchange="updateAutoClip('onRaid',this.checked)">
+                <span class="toggle-slider"></span>
+              </label>
+              <span style="font-size:12px;color:var(--muted);">Auto-clip when raided</span>
+            </div>
+          </div>
+          <div class="field" style="margin:0;">
+            <label>Clip on bits</label>
+            <div style="display:flex;align-items:center;gap:10px;margin-top:6px;">
+              <label class="toggle" style="margin:0;">
+                <input type="checkbox" id="autoClipBits" onchange="updateAutoClip('onBits',this.checked)">
+                <span class="toggle-slider"></span>
+              </label>
+              <div style="display:flex;align-items:center;gap:6px;">
+                <span style="font-size:12px;color:var(--muted);">≥</span>
+                <input type="number" id="autoClipBitsThreshold" min="1" style="width:70px;" onchange="updateAutoClip('bitsThreshold',+this.value)">
+                <span style="font-size:12px;color:var(--muted);">bits</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div style="margin-top:10px;font-size:11px;color:var(--muted);">Requires re-auth with <strong>clips:edit</strong> scope — click Connect with Twitch again in Credentials if clips aren't working.</div>
+      </div>
     </div>
 
     <!-- Overlay -->
@@ -1061,7 +1117,8 @@ const defaultConfig = {
     sub:    { enabled: true, chatMessage: 'Thank you {user} for subscribing! 🎉', soundFile: null, animation: null, imageFile: null, memeDuration: 5, memePosition: 'center' },
     raid:   { enabled: true, chatMessage: 'Welcome raiders from {user}! 🚀', soundFile: null, animation: null, imageFile: null, memeDuration: 5, memePosition: 'center' },
     bits:   { enabled: true, chatMessage: 'Thanks for the {bits} bits, {user}! 💎', soundFile: null, animation: null, threshold: 1, imageFile: null, memeDuration: 5, memePosition: 'center' }
-  }
+  },
+  autoClip: { chatCommand: true, modOnly: false, onRaid: false, onBits: false, bitsThreshold: 100 }
 };
 
 function cloneDefaultConfig() {
@@ -1084,6 +1141,7 @@ function normalizeConfig(saved = {}) {
     freesoundApiKey: source.freesoundApiKey || defaults.freesoundApiKey,
     memeLibrary: Array.isArray(source.memeLibrary) ? source.memeLibrary : defaults.memeLibrary,
     giphyApiKey: source.giphyApiKey || defaults.giphyApiKey,
+    autoClip: { ...defaults.autoClip, ...(source.autoClip || {}) },
     alerts: {}
   };
 
@@ -1165,6 +1223,7 @@ function sanitizeActivityHtml(html) {
   renderRedemptions();
   renderTriggers();
   renderAlerts();
+  renderAutoClip();
   renderSoundLibrary();
   document.getElementById('freesoundApiKey').value = config.freesoundApiKey || '';
   renderMemeLibrary();
@@ -1301,6 +1360,14 @@ ipcRenderer.on('bot-event', (_, { event, data }) => {
   if (event === 'chat') {
     addActivity('💬', `<strong>${escapeHtml(data.username)}</strong>: ${escapeHtml(String(data.message || '').substring(0,60))}`);
   }
+  if (event === 'clip-created') {
+    addActivity('🎬', `Clip created: <a href="#" onclick="openExternalURL('${escapeHtml(data.url)}');return false;" style="color:var(--accent);">${escapeHtml(data.url)}</a>`);
+    toast('Clip created!', 'success');
+  }
+  if (event === 'clip-error') {
+    addActivity('⚠️', `<strong>Clip failed:</strong> ${escapeHtml(data.message)}`);
+    toast(data.message, 'error');
+  }
   if (event === 'token-refreshed') {
     addActivity('🔑', 'Access token refreshed automatically.');
   }
@@ -1375,6 +1442,7 @@ async function startOAuth() {
       'channel:manage:redemptions',
       'moderator:read:followers',
       'channel:read:subscriptions',
+      'clips:edit',
     ]
   });
 
@@ -2339,6 +2407,33 @@ function renderAlerts() {
   }).join('');
 }
 
+function renderAutoClip() {
+  const ac = config.autoClip || {};
+  const cmdEl   = document.getElementById('autoClipCmd');
+  const modEl   = document.getElementById('autoClipMod');
+  const raidEl  = document.getElementById('autoClipRaid');
+  const bitsEl  = document.getElementById('autoClipBits');
+  const thrEl   = document.getElementById('autoClipBitsThreshold');
+  if (cmdEl)  cmdEl.checked  = !!ac.chatCommand;
+  if (modEl)  modEl.checked  = !!ac.modOnly;
+  if (raidEl) raidEl.checked = !!ac.onRaid;
+  if (bitsEl) bitsEl.checked = !!ac.onBits;
+  if (thrEl)  thrEl.value    = ac.bitsThreshold ?? 100;
+}
+async function updateAutoClip(field, value) {
+  config.autoClip[field] = value;
+  await saveConfig();
+}
+async function manualCreateClip() {
+  const result = await ipcRenderer.invoke('create-clip');
+  if (!result?.ok) {
+    const msg = result?.reason === 'bot-not-running'
+      ? 'Start the bot first, then create a clip.'
+      : 'Could not create clip.';
+    toast(msg, 'error');
+  }
+}
+
 async function toggleAlert(key, val) { config.alerts[key].enabled = val; await saveConfig(); renderAlerts(); }
 async function updateAlertChat(key, val) { config.alerts[key].chatMessage = val; await saveConfig(); }
 async function pickAlertSound(key) {
@@ -2390,6 +2485,7 @@ async function importConfig() {
   renderRedemptions();
   renderTriggers();
   renderAlerts();
+  renderAutoClip();
   toast('Config imported! Reconnect the bot to apply.', 'success');
 }
 
